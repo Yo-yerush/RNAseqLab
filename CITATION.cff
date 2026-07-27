@@ -1,0 +1,11 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "RNA-seq Analysis Dashboard"
+type: software
+authors:
+  - family-names: Yerushalmy
+    given-names: Yonatan
+    orcid: "https://orcid.org/0009-0005-2671-2457"
+  - family-names: Amir
+    given-names: Rachel
+repository-code: "https://github.com/Yo-yerush/RNAseq_analysis_app"
