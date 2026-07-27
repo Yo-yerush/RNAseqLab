@@ -6,14 +6,14 @@ A local R Shiny dashboard for RNA-seq differential expression analysis, count/qu
 Plant's metabolism and molecular genetic lab, Prof. Rachel Amir group
 
 **Repository:**  
-[https://github.com/Yo-yerush/RNAseq_analysis_app.git](https://github.com/Yo-yerush/RNAseq_analysis_app.git)
+[https://github.com/Yo-yerush/RNAseqLab.git](https://github.com/Yo-yerush/RNAseqLab.git)
 
 ## How To Run On Windows
 
 1. Install R for Windows, preferably R 4.2 or newer.
 2. Extract the project folder.
 3. First time: double-click `install.bat`.
-4. Later runs: double-click `RNAseq_analysis_app.bat`.
+4. Later runs: double-click `RNAseqLab.bat`.
 
 If `Rscript.exe was not found in PATH`, add your R `bin` folder to PATH, usually:
 
@@ -273,4 +273,4 @@ set "RSCRIPT=C:\Program Files\R\R-4.5.0\bin\Rscript.exe"
   - `diagnose_R_installation.bat` - checks common Windows R installation paths if the launchers cannot find `Rscript.exe`.
   - `description_files/` - optional local data files. Default Arabidopsis, human, E. coli K-12 MG1655 annotation tables and TAIR10 TE metadata are loaded from GitHub when internet is available.
 - `install.bat` - Windows first-run launcher that installs missing packages.
-- `RNAseq_analysis_app.bat` - faster launcher for later runs.
+- `RNAseqLab.bat` - faster launcher for later runs.

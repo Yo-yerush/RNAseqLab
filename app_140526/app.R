@@ -577,7 +577,7 @@ ui <- fluidPage(
   # Add the theme selector if shinythemes is installed (for easy testing of themes)
   # if (requireNamespace("shinythemes", quietly = TRUE)) shinythemes::themeSelector(),
 
-  titlePanel(div(class = "app-title", style = "margin-left: -12px;", tags$a(href = "https://github.com/Yo-yerush/RNAseq_analysis_app", target = "_blank", "╭╯"), "RNA-seq Analysis Dashboard", )),
+  titlePanel(div(class = "app-title", style = "margin-left: -12px;", tags$a(href = "https://github.com/Yo-yerush/RNAseqLab", target = "_blank", "╭╯"), "RNAseqLab Dashboard", )),
   # div(class = "muted", style = "margin-left: 68px;", "By Yonatan Yerushalmy • Rachel Amir's group"),
   # div(class = "muted", style = "margin-left: 12px;", "By Yonatan Yerushalmy • Rachel Amir's group"),
   div(class = "muted", style = "margin-left: 0px; margin-bottom: -16px;", "By Yonatan Yerushalmy • Rachel Amir's group"),
@@ -1549,16 +1549,13 @@ ui <- fluidPage(
           verbatimTextOutput("run_all_log")
         ),
 
-        tabPanel("Log / Help",
+        tabPanel("Help / Log",
           tabsetPanel(
-            tabPanel("Log",
-              br(),
-              h4("Run Log"),
-              div(class = "muted", "App steps, user-facing messages, and errors are recorded here. Package console output and warnings are intentionally not shown."),
-              verbatimTextOutput("run_log")
-            ),
             tabPanel("Help",
               br(),
+              h4("RNAseqLab"),
+              div("An Integrated Platform for Differential Expression and Downstream Functional Analysis"),
+              tags$hr(),
               h4("Author"),
               div("Yonatan Yerushalmy"),
               div(class = "muted", "Plant's Metabolism and Molecular Genetic laboratory"),
@@ -1566,10 +1563,10 @@ ui <- fluidPage(
               tags$hr(),
               h4("Source Code & Repository"),
               div(class = "muted", "You can download, edit, and access the raw files and source code for this app:"),
-              tags$a(href = "https://github.com/Yo-yerush/RNAseq_analysis_app/archive/refs/heads/main.zip", "Download (.zip)", target = "_blank"),
+              tags$a(href = "https://github.com/Yo-yerush/RNAseqLab/archive/refs/heads/main.zip", "Download (.zip)", target = "_blank"),
               div(class = "muted", "--"),
               div(class = "muted", "GitHub repository:"),
-              tags$a(href = "https://github.com/Yo-yerush/RNAseq_analysis_app", "https://github.com/Yo-yerush/RNAseq_analysis_app", target = "_blank"),
+              tags$a(href = "https://github.com/Yo-yerush/RNAseqLab", "https://github.com/Yo-yerush/RNAseqLab", target = "_blank"),
               tags$hr(),
               h4("Notes & Usage"),
               tags$ul(
@@ -1602,6 +1599,12 @@ ui <- fluidPage(
               #   tags$li(strong("Do not break existing behavior: "), "Keep Arabidopsis TAIR workflows working while adding human/other organism support. Avoid changing input IDs unless all server references are updated.")
               # )
             ),
+            tabPanel("Log",
+              br(),
+              h4("Run Log"),
+              div(class = "muted", "App steps, user-facing messages, and errors are recorded here. Package console output and warnings are intentionally not shown."),
+              verbatimTextOutput("run_log")
+            ),            
             tabPanel("Parameters",
               br(),
               h4("Current Parameters"),
@@ -1613,6 +1616,10 @@ ui <- fluidPage(
               h4("Installed Dependencies"),
               div(class = "muted", "Package status is checked with requireNamespace(). The selected OrgDb package is included dynamically from the Organism annotations settings."),
               DTOutput("dependency_table")
+            ),
+            tabPanel(
+              "Session info",
+              verbatimTextOutput("session_info")
             )
           )
         )
@@ -1673,6 +1680,8 @@ server <- function(input, output, session) {
     hallmark_genes = NULL,
     kegg_enrichment = NULL,
     kegg_enrichment_source = NULL,
+    kegg_enrichment_modal_data = NULL,
+    kegg_pathway_modal_data = NULL,
     kegg_bubble = NULL,
     pmn_enrichment = NULL,
     pmn_plot = NULL,
@@ -3144,6 +3153,11 @@ server <- function(input, output, session) {
     } else if (identical(table_id, "annotation_preview")) {
       d <- rv$annotation_preview_modal_data
       title <- "Annotation preview row details"
+    } else if (identical(table_id, "kegg_enrichment_table")) {
+      d <- rv$kegg_enrichment_modal_data
+      if (is.null(d) || row_i > nrow(d)) return()
+      show_kegg_pathway_details_modal(d[row_i, , drop = FALSE])
+      return()
     } else {
       return()
     }
@@ -5066,6 +5080,10 @@ server <- function(input, output, session) {
     )
   })
 
+  output$session_info <- renderText({
+    paste(capture.output(sessionInfo()), collapse = "\n")
+  })
+
   observeEvent(input$choose_run_all_dir, {
     path <- shinyFiles::parseDirPath(volumes, input$choose_run_all_dir)
     if (length(path) > 0 && nzchar(path[1])) {
@@ -6470,8 +6488,89 @@ server <- function(input, output, session) {
   
   output$kegg_enrichment_table <- renderDT({
     req(rv$kegg_enrichment)
-    datatable(rv$kegg_enrichment, rownames = FALSE, filter = "top", options = list(pageLength = 15, scrollX = TRUE))
+    d <- rv$kegg_enrichment
+    rv$kegg_enrichment_modal_data <- d
+    display_d <- add_row_detail_buttons(d, "kegg_enrichment_table")
+    datatable(display_d, rownames = FALSE, filter = "top", selection = "none", escape = FALSE,
+              options = list(
+                pageLength = 15,
+                scrollX = TRUE,
+                columnDefs = row_detail_button_defs(0)
+              ),
+              callback = row_detail_button_callback)
   })
+
+  show_kegg_pathway_details_modal <- function(pathway_row) {
+    pathway_code <- as.character(pathway_row$pathway.code[1] %||% "")
+    pathway_name <- as.character(pathway_row$pathway.name[1] %||% pathway_code)
+    title <- paste0("KEGG pathway details: ", pathway_code, " - ", pathway_name)
+
+    if (!identical(rv$kegg_enrichment_source %||% "gene", "gene")) {
+      showModal(modalDialog(
+        title = title,
+        "Gene-level pathway details are available only for KEGG gene-ID enrichment. EC-column enrichment does not retain a KEGG gene membership list.",
+        size = "l",
+        easyClose = TRUE,
+        footer = modalButton("Close")
+      ))
+      return(invisible(NULL))
+    }
+
+    genes <- tryCatch(
+      make_kegg_enrichment_pathway_gene_table(
+        rv$de,
+        pathway_code = pathway_code,
+        padj_cutoff = pathway_row$padj_cutoff[1] %||% input$alpha,
+        lfc_cutoff = pathway_row$lfc_cutoff[1] %||% input$lfc_cutoff,
+        kegg_species = input$kegg_species %||% "ath",
+        gene_id_type = input$go_keytype %||% NULL,
+        orgdb = input$go_orgdb %||% NULL
+      ),
+      error = function(e) e
+    )
+    if (inherits(genes, "error")) {
+      showModal(modalDialog(title = title, genes$message, size = "l", easyClose = TRUE, footer = modalButton("Close")))
+      return(invisible(NULL))
+    }
+    if (nrow(genes) == 0) {
+      showModal(modalDialog(title = title, "No significant genes were found using the thresholds from this enrichment run.", size = "l", easyClose = TRUE, footer = modalButton("Close")))
+      return(invisible(NULL))
+    }
+
+    rv$kegg_pathway_modal_data <- genes
+    showModal(modalDialog(
+      title = title,
+      tags$p(strong("Significant genes in enrichment: "), nrow(genes)),
+      DTOutput("kegg_pathway_modal_table"),
+      div(class = "download-row", downloadButton("download_kegg_pathway_modal_table", "Download significant genes")),
+      size = "l",
+      easyClose = TRUE,
+      footer = modalButton("Close")
+    ))
+  }
+
+  kegg_pathway_modal_display_data <- function() {
+    d <- rv$kegg_pathway_modal_data
+    req(!is.null(d))
+    keep_cols <- c("gene_id", "KEGG_gene_id", "Symbol", "log2FoldChange", "pValue", "padj", "DE_class")
+    d[, intersect(keep_cols, names(d)), drop = FALSE]
+  }
+
+  output$kegg_pathway_modal_table <- renderDT({
+    datatable(kegg_pathway_modal_display_data(), rownames = FALSE, filter = "top", options = list(pageLength = 15, scrollX = TRUE))
+  })
+
+  output$download_kegg_pathway_modal_table <- downloadHandler(
+    filename = function() {
+      d <- rv$kegg_pathway_modal_data
+      req(!is.null(d) && nrow(d) > 0)
+      pathway_code <- as.character(d$pathway.code[1] %||% "pathway")
+      paste0("KEGG_", gsub("[^A-Za-z0-9]+", "_", pathway_code), "_significant_genes_", Sys.Date(), ".csv")
+    },
+    content = function(file) {
+      write.csv(kegg_pathway_modal_display_data(), file, row.names = FALSE)
+    }
+  )
   
   kegg_bubble_reactive <- reactive({
     req(rv$kegg_enrichment)

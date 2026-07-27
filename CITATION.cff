@@ -1,11 +1,41 @@
 cff-version: 1.2.0
-message: "If you use this software, please cite it as below."
-title: "RNA-seq Analysis Dashboard"
+message: "If you use this software, please cite it using the metadata below."
+title: "RNAseqLab: An Interactive Platform for RNA-seq Differential Expression and Functional Interpretation"
 type: software
+
 authors:
   - family-names: Yerushalmy
     given-names: Yonatan
     orcid: "https://orcid.org/0009-0005-2671-2457"
+
   - family-names: Amir
     given-names: Rachel
-repository-code: "https://github.com/Yo-yerush/RNAseq_analysis_app"
+
+abstract: >-
+  RNAseqLab is a local, interactive R Shiny platform for differential
+  expression analysis and downstream biological interpretation of RNA-seq
+  data. It integrates data import and quality assessment, differential
+  expression testing, exploratory and publication-ready visualization,
+  functional enrichment analysis, pathway analysis, gene annotation,
+  specialized organism-specific analyses, and automated report generation
+  within a unified workflow. The application accepts differential-expression
+  results, raw count matrices, and transcript-quantification outputs generated
+  by RSEM, featureCounts, Salmon, or Kallisto. By combining established
+  bioinformatics methods with an accessible graphical interface, RNAseqLab
+  enables researchers to perform reproducible downstream RNA-seq analyses
+  locally without requiring command-line programming.
+
+keywords:
+  - RNA-seq
+  - differential expression
+  - R Shiny
+  - DESeq2
+  - functional enrichment
+  - bioinformatics
+
+repository-code: "https://github.com/Yo-yerush/RNAseqLab"
+
+license: GPL-3.0-only
+
+version: 0.9.0
+date-released: "2026-07-27"

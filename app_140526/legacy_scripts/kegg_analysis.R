@@ -448,6 +448,54 @@ run_kegg_enrichment <- function(de_df, pvalue_cutoff = 0.05, lfc_cutoff = 0, keg
   return(outdat)
 }
 
+make_kegg_enrichment_pathway_gene_table <- function(de_df, pathway_code,
+                                                     padj_cutoff = 0.05, lfc_cutoff = 0,
+                                                     kegg_species = "ath", gene_id_type = NULL,
+                                                     orgdb = NULL, kegg_data = NULL) {
+  if (!"pValue" %in% names(de_df)) de_df$pValue <- de_df$padj
+  if (!"padj" %in% names(de_df)) de_df$padj <- de_df$pValue
+  if (!all(c("gene_id", "pValue", "padj", "log2FoldChange") %in% names(de_df))) {
+    stop("KEGG pathway details require gene_id, pValue, padj, and log2FoldChange columns.")
+  }
+
+  lfc_cutoff <- suppressWarnings(as.numeric(lfc_cutoff %||% 0))
+  if (!is.finite(lfc_cutoff) || is.na(lfc_cutoff)) lfc_cutoff <- 0
+  lfc_cutoff <- abs(lfc_cutoff)
+  padj_cutoff <- suppressWarnings(as.numeric(padj_cutoff %||% 0.05))
+  if (!is.finite(padj_cutoff) || is.na(padj_cutoff)) padj_cutoff <- 0.05
+
+  de_df <- map_de_ids_for_kegg(de_df, gene_id_type = gene_id_type, orgdb = orgdb)
+  de_df <- de_df[
+    !is.na(de_df$gene_id) & !is.na(de_df$pValue) & !is.na(de_df$padj) & !is.na(de_df$log2FoldChange),
+    , drop = FALSE
+  ]
+
+  pathway_code <- sub("^path:", "", trimws(as.character(pathway_code %||% "")))
+  if (!nzchar(pathway_code)) stop("No KEGG pathway was selected.")
+  if (is.null(kegg_data)) kegg_data <- get_kegg_genes_cached(kegg_species = kegg_species)
+  pathway_genes <- kegg_data$genes_by_pathway[[pathway_code]]
+  if (is.null(pathway_genes)) stop("The selected pathway was not found in the KEGG enrichment mapping.")
+
+  gene_ids <- as.character(de_df$gene_id)
+  pathway_ids <- intersect(gene_ids, as.character(pathway_genes))
+  if (length(pathway_ids) == 0) return(data.frame())
+
+  padj_by_gene <- stats::setNames(de_df$padj, gene_ids)
+  lfc_by_gene <- stats::setNames(de_df$log2FoldChange, gene_ids)
+  significant_ids <- pathway_ids[
+    padj_by_gene[pathway_ids] < padj_cutoff &
+      abs(lfc_by_gene[pathway_ids]) >= lfc_cutoff
+  ]
+  if (length(significant_ids) == 0) return(data.frame())
+
+  out <- de_df[match(significant_ids, gene_ids), , drop = FALSE]
+  out$KEGG_gene_id <- as.character(out$gene_id)
+  if ("original_gene_id" %in% names(out)) out$gene_id <- as.character(out$original_gene_id)
+  out$pathway.code <- pathway_code
+  rownames(out) <- NULL
+  out
+}
+
 ########################################################
 # 3. Bubble Plot for Enriched Pathways
 ########################################################
