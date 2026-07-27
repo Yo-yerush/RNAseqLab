@@ -1568,6 +1568,24 @@ ui <- fluidPage(
               div(class = "muted", "GitHub repository:"),
               tags$a(href = "https://github.com/Yo-yerush/RNAseqLab", "https://github.com/Yo-yerush/RNAseqLab", target = "_blank"),
               tags$hr(),
+              tags$div(
+                class = "citation-box",
+                tags$h4("Cite"),
+                tags$p(
+                  HTML(
+                    'Yerushalmy, Y., &amp; Amir, R. (2026). 
+                    <em>RNAseqLab: An interactive platform for RNA-seq differential 
+                    expression and functional interpretation</em> 
+                    (Version 0.9.0). Zenodo.'
+                  )
+                ),
+                tags$a(
+                  "https://doi.org/10.5281/zenodo.21627218",
+                  href = "https://doi.org/10.5281/zenodo.21627218",
+                  target = "_blank"
+                )
+              ),              
+              tags$hr(),
               h4("Notes & Usage"),
               tags$ul(
                 tags$li(strong("Data input: "), "Upload DE CSV/TSV/TXT files or run DESeq2 directly from RSEM ", code("*.genes.results"), ", Salmon ", code("quant.sf"), ", Kallisto ", code("abundance.tsv"), ", featureCounts output, or a count matrix with gene IDs in the first column and sample counts in the remaining columns. CSV, TSV, and TXT uploads can use comma or tab delimiters. PCA is shown here only after running DESeq2 from count/quantification data."),
