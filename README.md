@@ -8,6 +8,10 @@ Plant's metabolism and molecular genetic lab, Prof. Rachel Amir group
 **Repository:**  
 [https://github.com/Yo-yerush/RNAseqLab.git](https://github.com/Yo-yerush/RNAseqLab.git)
 
+
+**Cite:**  
+Yerushalmy, Y., & Amir, R. (2026). *RNAseqLab: An interactive platform for RNA-seq differential expression and functional interpretation, (Version 0.9.1). Zenodo. [doi.org/10.5281/zenodo.21640051](https://doi.org/10.5281/zenodo.21640051)
+
 ## How To Run On Windows
 
 1. Install R for Windows, preferably R 4.2 or newer.

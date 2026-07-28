@@ -1576,12 +1576,12 @@ ui <- fluidPage(
                     'Yerushalmy, Y., &amp; Amir, R. (2026). 
                     <em>RNAseqLab: An interactive platform for RNA-seq differential 
                     expression and functional interpretation</em> 
-                    . Zenodo.'
+                    (V0.9.1). Zenodo.'
                   )
                 ),
                 tags$a(
-                  "https://doi.org/10.5281/zenodo.21627218",
-                  href = "https://doi.org/10.5281/zenodo.21627218",
+                  "https://doi.org/10.5281/zenodo.21640051",
+                  href = "https://doi.org/10.5281/zenodo.21640051",
                   target = "_blank"
                 )
               ),         
