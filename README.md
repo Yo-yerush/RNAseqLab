@@ -21,6 +21,17 @@ If `Rscript.exe was not found in PATH`, add your R `bin` folder to PATH, usually
 C:\Program Files\R\R-4.x.x\bin
 ```
 
+## Run on macOS or Linux
+
+Open a terminal in the repository root and run the installer once, then launch the app:
+
+```sh
+Rscript app/install_packages.R
+Rscript app/launch_app.R
+```
+
+`launch_app.R` is platform-independent and starts the local Shiny app in the default browser. The `.bat` files are Windows-only convenience launchers.
+
 ## Data Input
 
 ### Upload DE Results
@@ -251,7 +262,7 @@ The launcher searches for `Rscript.exe` in PATH and common Windows install locat
 - `C:\Program Files (x86)\R\...`
 - `%LOCALAPPDATA%\Programs\R\...`
 
-If it still cannot find R, run `app_140526/diagnose_R_installation.bat`, then edit the launcher path manually if needed:
+If it still cannot find R, run `app/diagnose_R_installation.bat`, then edit the launcher path manually if needed:
 
 ```bat
 set "RSCRIPT=C:\Program Files\R\R-4.5.0\bin\Rscript.exe"
@@ -259,7 +270,7 @@ set "RSCRIPT=C:\Program Files\R\R-4.5.0\bin\Rscript.exe"
 
 ## File Structure
 
-- `app_140526/` - main app folder:
+- `app/` - main app folder:
   - `app.R` - Shiny dashboard UI/server.
   - `R/helpers.R` - DESeq2 pipeline, DE result plots, GO/MSigDB helpers, annotation utilities.
   - `R/run_all.R` - Batch Run output helpers, task execution, organized output folders, logging, and optional HTML report rendering.
