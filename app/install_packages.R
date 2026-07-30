@@ -6,12 +6,12 @@ options(repos = c(CRAN = "https://cloud.r-project.org"))
 cran_packages <- c(
   "shiny", "shinyFiles", "shinythemes", "DT", "ggplot2", "dplyr", "readr", "stringr", "tibble",
   "tidyr", "ggrepel", "RColorBrewer", "pheatmap", "ashr", "msigdbr", "VennDiagram", "readxl",
-  "rmarkdown", "knitr"
+  "rmarkdown", "knitr", "gridExtra", "patchwork"
 )
 
 bioc_packages <- c(
   "DESeq2", "tximport", "topGO", "AnnotationDbi",
-  "SummarizedExperiment", "rrvgo", "biomaRt", "GO.db"#, "org.At.tair.db", "org.Hs.eg.db"
+  "SummarizedExperiment", "rrvgo", "biomaRt", "GO.db", "pathview" # , "org.At.tair.db", "org.Hs.eg.db"
 )
 
 install_missing_cran <- function(pkgs) {

@@ -137,7 +137,7 @@ dependency_catalog <- data.frame(
     "patchwork", "gridExtra", "futile.logger", "rmarkdown", "knitr", "Pandoc"
   ),
   Needed_for = c(
-    "Core R runtime. Nothing runs without R.",
+    "", # "Core R runtime. Nothing runs without R.",
     "Main Shiny app server and UI.",
     "Folder picker for RSEM/Salmon/Kallisto input directories.",
     "Current app theme. App can run without it only if the theme call is changed.",
@@ -177,7 +177,7 @@ dependency_catalog <- data.frame(
     "Required by rmarkdown to render the optional Run All HTML report."
   ),
   If_missing = c(
-    "Install R and make Rscript discoverable by the launcher.",
+    "", # "Install R and make Rscript discoverable by the launcher.",
     "The app cannot start.",
     "Quantification-folder browsing will not work.",
     "The current UI theme may fail unless replaced with another theme.",
