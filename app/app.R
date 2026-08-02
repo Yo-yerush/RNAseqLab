@@ -571,13 +571,37 @@ ui <- fluidPage(
         $('body').toggleClass('settings-hidden', hidden);
         $(this).text(hidden ? '☰ ►' : '◄ ☰');
       });
-    "))
+    ")),
+    tags$link(
+      rel = "icon",
+      type = "image/png",
+      href = "RNAseqLab_logo.png"
+    ),
+    tags$title("RNAseqLab")
   ),
 
   # Add the theme selector if shinythemes is installed (for easy testing of themes)
   # if (requireNamespace("shinythemes", quietly = TRUE)) shinythemes::themeSelector(),
 
-  titlePanel(div(class = "app-title", style = "margin-left: -12px;", tags$a(href = "https://github.com/Yo-yerush/RNAseqLab", target = "_blank", "╭╯"), "RNAseqLab Dashboard", )),
+  #titlePanel(div(class = "app-title", style = "margin-left: -12px;", tags$a(href = "https://github.com/Yo-yerush/RNAseqLab", target = "_blank", "╭╯"), "RNAseqLab Dashboard", )),
+  titlePanel(
+    div(
+      class = "app-title",
+      style = "margin-left: -12px; display: flex; align-items: center; gap: 10px;",
+
+      tags$a(
+        href = "https://github.com/Yo-yerush/RNAseqLab",
+        target = "_blank",
+        tags$img(
+          src = "RNAseqLab_logo.png",
+          height = "45px"
+        )
+      ),
+
+      "RNAseqLab Dashboard"
+    )
+  ),
+  
   # div(class = "muted", style = "margin-left: 68px;", "By Yonatan Yerushalmy • Rachel Amir's group"),
   # div(class = "muted", style = "margin-left: 12px;", "By Yonatan Yerushalmy • Rachel Amir's group"),
   div(class = "muted", style = "margin-left: 0px; margin-bottom: -16px;", "By Yonatan Yerushalmy • Rachel Amir's group"),

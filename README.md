@@ -1,4 +1,7 @@
-# RNA-seq Analysis Dashboard
+<h1>
+  <img src="app/www/RNAseqLab_logo.png" width="60" align="left" alt="RNA-seq Downstream Analysis logo">
+  RNA-seq Downstream Analysis Dashboard
+</h1>
 
 A local R Shiny dashboard for RNA-seq differential expression analysis, count/quantification import, annotation building, dependency checks, and downstream visualization.
 
