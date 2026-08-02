@@ -5,6 +5,8 @@
 
 A local R Shiny dashboard for RNA-seq differential expression analysis, count/quantification import, annotation building, dependency checks, and downstream visualization.
 
+---
+
 **Author:** Yonatan Yerushalmy  
 Plant's metabolism and molecular genetic lab, Prof. Rachel Amir group
 
