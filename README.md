@@ -1,5 +1,5 @@
 <h1>
-  <img src="app/www/RNAseqLab_white_logo.png" width="80" align="left" style="margin-top:-8px;" alt="RNA-seq Downstream Analysis logo">
+  <img src="app/www/RNAseqLab_R_logo.png" width="80" align="left" style="margin-top:-8px;" alt="RNA-seq Downstream Analysis logo">
   RNA-seq Downstream Analysis Dashboard
 </h1>
 
