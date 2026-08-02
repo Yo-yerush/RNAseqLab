@@ -1,11 +1,11 @@
 <h1>
   <img src="app/www/RNAseqLab_R_logo.png" width="120" align="left" style="margin-top:-8px;" alt="RNA-seq Downstream Analysis logo">
-  RNA-seq Downstream Analysis Dashboard
+  RNAseqLab: RNAseqLab: Expression & Downstream Analysis Dashboard
 </h1>
 
 A local R Shiny dashboard for RNA-seq differential expression analysis, count/quantification import, annotation building, dependency checks, and downstream visualization.
 
----
+<h1></h1>
 
 **Author:** Yonatan Yerushalmy  
 Plant's metabolism and molecular genetic lab, Prof. Rachel Amir group
