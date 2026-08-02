@@ -594,17 +594,28 @@ ui <- fluidPage(
         target = "_blank",
         tags$img(
           src = "RNAseqLab_logo.png",
-          height = "45px"
+          height = "65px"
         )
       ),
 
-      "RNAseqLab Dashboard"
+      div(
+        style = "display: flex; flex-direction: column;",
+
+        div(
+          "RNAseqLab Dashboard"
+        ),
+
+        div(
+          style = "font-size: 14px; font-weight: normal; margin-top: 2px;",
+          "By Yonatan Yerushalmy • Rachel Amir's group"
+        )
+      )
     )
   ),
   
   # div(class = "muted", style = "margin-left: 68px;", "By Yonatan Yerushalmy • Rachel Amir's group"),
   # div(class = "muted", style = "margin-left: 12px;", "By Yonatan Yerushalmy • Rachel Amir's group"),
-  div(class = "muted", style = "margin-left: 0px; margin-bottom: -16px;", "By Yonatan Yerushalmy • Rachel Amir's group"),
+  # div(class = "muted", style = "margin-left: 0px; margin-bottom: -16px;", "By Yonatan Yerushalmy • Rachel Amir's group"),
   tags$hr(),
   div(
     style = "margin-top: -20px; margin-bottom: -6px;", # margin-left: left; 
@@ -1577,8 +1588,23 @@ ui <- fluidPage(
           tabsetPanel(
             tabPanel("Help",
               br(),
-              h4("RNAseqLab"),
-              div("An Integrated Platform for Differential Expression and Downstream Functional Analysis"),
+              # h4("RNAseqLab"),
+              div(
+                style = "display: flex; align-items: center; gap: 10px;",
+              
+                tags$img(
+                  src = "RNAseqLab_logo.png",
+                  width = "120px"
+                ),
+              
+                div(
+                  h4(
+                    style = "margin: 0;",
+                    "RNAseqLab"
+                  ),
+                  div("An Integrated Platform for Differential Expression and Downstream Functional Analysis")
+                )
+              ),
               tags$hr(),
               h4("Author"),
               div("Yonatan Yerushalmy"),
