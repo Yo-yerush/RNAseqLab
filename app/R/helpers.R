@@ -1219,6 +1219,84 @@ scan_featurecounts_file <- function(path) {
   )
 }
 
+prepare_expression_heatmap <- function(vst_counts, de_table, coldata = NULL,
+    gene_mode = c("variable", "significant"), transform = c("vst", "zscore"),
+    top_n = 50, alpha = 0.05, lfc_cutoff = 1) {
+  gene_mode <- match.arg(gene_mode); transform <- match.arg(transform)
+  if (is.null(vst_counts) || !"gene_id" %in% names(vst_counts)) stop("Expression heatmap requires a completed DESeq2 count-data analysis.")
+  sample_cols <- setdiff(names(vst_counts), "gene_id")
+  if (!is.null(coldata) && all(c("sample_id", "condition") %in% names(coldata))) sample_cols <- as.character(coldata$sample_id[coldata$sample_id %in% sample_cols])
+  if (length(sample_cols) < 2) stop("At least two expression samples are required for a heatmap.")
+  mat <- as.matrix(vst_counts[, sample_cols, drop = FALSE]); storage.mode(mat) <- "numeric"
+  rownames(mat) <- clean_gene_id(vst_counts$gene_id)
+  mat <- mat[rowSums(is.finite(mat)) == ncol(mat), , drop = FALSE]
+  if (!nrow(mat)) stop("No finite expression values are available for the heatmap.")
+  top_n <- max(1L, as.integer(top_n %||% 50L))
+  if (gene_mode == "variable") {
+    gene_var <- apply(mat, 1, stats::var, na.rm = TRUE)
+    gene_ids <- names(sort(gene_var, decreasing = TRUE))[seq_len(min(top_n, length(gene_var)))]
+  } else {
+    if (is.null(de_table) || !"gene_id" %in% names(de_table)) stop("A DE results table is required for this gene selection.")
+    match_col <- if ("original_gene_id" %in% names(de_table)) "original_gene_id" else "gene_id"
+    de_ids <- clean_gene_id(de_table[[match_col]])
+    keep <- is.finite(de_table$padj) & de_table$padj <= alpha & is.finite(de_table$log2FoldChange) & abs(de_table$log2FoldChange) >= lfc_cutoff
+    ord <- order(de_table$padj[keep], -abs(de_table$log2FoldChange[keep]), na.last = TRUE)
+    gene_ids <- head(unique(de_ids[keep][ord]), top_n)
+  }
+  gene_ids <- unique(gene_ids[nzchar(gene_ids) & gene_ids %in% rownames(mat)])
+  if (!length(gene_ids)) stop("No genes matched the current heatmap selection.")
+  mat <- mat[gene_ids, , drop = FALSE]; display_labels <- gene_ids
+  if (!is.null(de_table) && "gene_id" %in% names(de_table)) {
+    match_col <- if ("original_gene_id" %in% names(de_table)) "original_gene_id" else "gene_id"
+    label_idx <- match(gene_ids, clean_gene_id(de_table[[match_col]]))
+    mapped_ids <- as.character(de_table$gene_id[label_idx])
+    usable_ids <- !is.na(mapped_ids) & nzchar(trimws(mapped_ids)); display_labels[usable_ids] <- mapped_ids[usable_ids]
+    symbol_col <- first_existing_col(de_table, c("Symbol", "symbol", "gene_symbol", "Gene.symbol", "Gene_Symbol", "geneSymbol", "GENE_SYMBOL"))
+    if (!is.null(symbol_col)) {
+      symbols <- trimws(as.character(de_table[[symbol_col]][label_idx]))
+      usable_symbols <- !is.na(symbols) & nzchar(symbols) & !symbols %in% c("-", ".", "NA", "N/A")
+      display_labels[usable_symbols] <- symbols[usable_symbols]
+      duplicated_symbols <- usable_symbols & (duplicated(display_labels) | duplicated(display_labels, fromLast = TRUE))
+      display_labels[duplicated_symbols] <- paste0(display_labels[duplicated_symbols], " (", gene_ids[duplicated_symbols], ")")
+    }
+  }
+  rownames(mat) <- make.unique(display_labels)
+  if (transform == "zscore") { mat <- t(scale(t(mat))); mat[!is.finite(mat)] <- 0 }
+  annotation_col <- NULL
+  if (!is.null(coldata) && all(c("sample_id", "condition") %in% names(coldata))) {
+    ann <- coldata[match(colnames(mat), as.character(coldata$sample_id)), , drop = FALSE]
+    annotation_col <- data.frame(" " = as.factor(ann$condition), row.names = colnames(mat), check.names = FALSE)
+    if ("sample_label" %in% names(ann)) {
+      labels <- as.character(ann$sample_label); missing_label <- is.na(labels) | !nzchar(trimws(labels))
+      labels[missing_label] <- colnames(mat)[missing_label]; colnames(mat) <- make.unique(labels); rownames(annotation_col) <- colnames(mat)
+    }
+  }
+  list(matrix = mat, annotation_col = annotation_col)
+}
+
+make_expression_heatmap <- function(prepared, cluster_rows = TRUE, cluster_cols = TRUE, transform = c("vst", "zscore"),
+                                    color_up = "#B2182B", color_down = "#2166AC", font_family = "serif") {
+  transform <- match.arg(transform)
+  if (!requireNamespace("pheatmap", quietly = TRUE)) stop("Package 'pheatmap' is required for expression heatmaps.")
+  color_limit <- max(abs(prepared$matrix), na.rm = TRUE)
+  if (!is.finite(color_limit) || color_limit == 0) color_limit <- 1
+  args <- list(mat = prepared$matrix, color = grDevices::colorRampPalette(c(color_down, "#F7F7F7", color_up))(100),
+    breaks = seq(-color_limit, color_limit, length.out = 101),
+    cluster_rows = isTRUE(cluster_rows) && nrow(prepared$matrix) > 1,
+    cluster_cols = isTRUE(cluster_cols) && ncol(prepared$matrix) > 1, annotation_col = prepared$annotation_col,
+    border_color = NA, fontsize_row = if (nrow(prepared$matrix) > 60) 5 else 8, fontsize_col = 9,
+    annotation_colors = list(
+      " " = setNames(
+        rep(c("gray40", "gray80"),
+            length.out = nlevels(droplevels(prepared$annotation_col[[1]]))),
+        levels(droplevels(prepared$annotation_col[[1]]))
+      )
+    ),
+    fontfamily = font_family,
+    main = if (transform == "zscore") "Expression heatmap (gene Z-scores)" else "Expression heatmap (VST)", silent = TRUE)
+  do.call(pheatmap::pheatmap, args)
+}
+
 run_deseq2_from_rsem <- function(folder, coldata, treatment, control, lfc_shrink = FALSE, min_count = 10,
                                  effect_col = NULL, effect_level = NULL, use_interaction = FALSE,
                                  all_vs_control = TRUE, quant_type = "rsem", tx2gene_file = NULL,
@@ -1388,6 +1466,11 @@ run_deseq2_from_rsem <- function(folder, coldata, treatment, control, lfc_shrink
   list(
     de_table = res_df,
     norm_counts = norm_counts,
+    vst_counts = {
+      x <- as.data.frame(SummarizedExperiment::assay(vst_obj), check.names = FALSE)
+      x$gene_id <- clean_gene_id(rownames(x))
+      x[, c("gene_id", setdiff(names(x), "gene_id")), drop = FALSE]
+    },
     pca_table = pca_data,
     all_comparisons = all_comparisons,
     summary = paste(c(
@@ -1542,6 +1625,11 @@ run_deseq2_from_featurecounts <- function(counts_file, coldata, treatment, contr
   list(
     de_table = res_df,
     norm_counts = norm_counts,
+    vst_counts = {
+      x <- as.data.frame(SummarizedExperiment::assay(vst_obj), check.names = FALSE)
+      x$gene_id <- clean_gene_id(rownames(x))
+      x[, c("gene_id", setdiff(names(x), "gene_id")), drop = FALSE]
+    },
     pca_table = pca_data,
     all_comparisons = all_comparisons,
     summary = paste(c(
@@ -1696,6 +1784,11 @@ run_deseq2_from_count_matrix <- function(counts_file, coldata, treatment, contro
   list(
     de_table = res_df,
     norm_counts = norm_counts,
+    vst_counts = {
+      x <- as.data.frame(SummarizedExperiment::assay(vst_obj), check.names = FALSE)
+      x$gene_id <- clean_gene_id(rownames(x))
+      x[, c("gene_id", setdiff(names(x), "gene_id")), drop = FALSE]
+    },
     pca_table = pca_data,
     all_comparisons = all_comparisons,
     summary = paste(c(

@@ -1,5 +1,6 @@
 cat_dna <- strsplit("                                                  
-                                                                        
+░ Yo Yerush - 01/08/26
+
     ██████                                        
      ████████                                     
         ████████                                  
@@ -39,9 +40,6 @@ cat_dna <- strsplit("
          ███▓█████                                
       ██████████                                  
       ██████                                      
-
-
-░ Yo Yerush - 01/08/26
 ", "\n")[[1]]
                                                              
 cat_title <- strsplit("                                                  

@@ -206,7 +206,7 @@ dependency_catalog <- data.frame(
     "Hallmark analysis will not work.",
     "Some human gene-family mapping fallbacks will be unavailable.",
     "Some palette choices may fail.",
-    "Legacy/helper heatmaps may fail.",
+    "Expression and legacy/helper heatmaps may fail.",
     "RefSeq GTF/GFF3 parsing falls back to base R and may be slower.",
     "RefSeq GTF/GFF3 table building falls back to base R and may be slower.",
     "Some side-by-side legacy plots will not combine.",
@@ -961,28 +961,64 @@ ui <- fluidPage(
         ),
 
         tabPanel("DE results",
-          fluidRow(
-            column(6,
-              h4("Volcano plot"),
-              plotOutput("volcano_plot", width = "auto", height = "auto"),
-              download_plot_ui("volcano", "Download volcano plot")
+          tabsetPanel(id = "de_results_tabs",
+            tabPanel("DE table",
+              fluidRow(
+                column(12,
+                  h4("DE table & description"),
+                  div(class = "muted", "Search across all annotation columns! Use a space for 'AND' (e.g. 'kinase stress'), or use | for 'OR' (e.g. 'kinase|stress'). You can also filter specific columns using the boxes below the headers."),
+                  uiOutput("gene_counts_click_hint"),
+                  tags$hr(),
+                  DTOutput("search_annotations_table"),
+                  div(class = "download-row", downloadButton("download_search_annotations", "Download Table"))
+                )
+              )
             ),
-            column(6,
-              h4("MA plot"),
-              plotOutput("ma_plot", width = "auto", height = "auto"),
-              textOutput("ma_message"),
-              download_plot_ui("ma", "Download MA plot")
-            )
-          ),
-          tags$hr(),
-          fluidRow(
-            column(12,
-              h4("DE table & description"),
-              div(class = "muted", "Search across all annotation columns! Use a space for 'AND' (e.g. 'kinase stress'), or use | for 'OR' (e.g. 'kinase|stress'). You can also filter specific columns using the boxes below the headers."),
-              uiOutput("gene_counts_click_hint"),
-              tags$hr(),
-              DTOutput("search_annotations_table"),
-              div(class = "download-row", downloadButton("download_search_annotations", "Download Table"))
+            tabPanel("Plots",
+              fluidRow(
+                column(6,
+                  h4("Volcano plot"),
+                  plotOutput("volcano_plot", width = "auto", height = "auto"),
+                  download_plot_ui("volcano", "Download volcano plot")
+                ),
+                column(6,
+                  h4("MA plot"),
+                  plotOutput("ma_plot", width = "auto", height = "auto"),
+                  textOutput("ma_message"),
+                  download_plot_ui("ma", "Download MA plot")
+                )
+              )
+            ),
+            tabPanel("Expression heatmap",
+              fluidRow(
+                column(9,
+                  h4("Expression heatmap"),
+                  plotOutput("expression_heatmap", width = "auto", height = "auto"),
+                  textOutput("expression_heatmap_status"),
+                  download_plot_ui("expression_heatmap", "Download heatmap"),
+                  div(class = "download-row", downloadButton("download_expression_heatmap_matrix", "Download heatmap matrix"))
+                ),
+                column(3,
+                  wellPanel(
+                    h4("Heatmap options"),
+                    radioButtons("heatmap_gene_mode", "Genes",
+                      choices = c("Top variable genes" = "variable", "Significant DE genes" = "significant"),
+                      selected = "variable"),
+                    numericInput("heatmap_top_n", "Maximum genes", value = 50, min = 2, max = 500, step = 10),
+                    tags$hr(),
+                    radioButtons("heatmap_transform", "Transform",
+                      choices = c("VST" = "vst", "Z-score by gene" = "zscore"), selected = "zscore"),
+                    tags$hr(),
+                    tags$label("Cluster"),
+                    checkboxInput("heatmap_cluster_genes", "Genes", value = TRUE),
+                    checkboxInput("heatmap_cluster_samples", "Samples", value = TRUE),
+                    tags$hr(),
+                    sliderInput("heatmap_plot_width", "Width (px)", min = 200, max = 1200, value = 650, step = 50),
+                    sliderInput("heatmap_plot_height", "Height (px)", min = 100, max = 1200, value = 650, step = 50),
+                    div(class = "muted", "Significant genes use the current padj and |log2FC| thresholds. Z-scores are calculated row-wise from VST expression.")
+                  )
+                )
+              )
             )
           )
         ),
@@ -1573,7 +1609,7 @@ ui <- fluidPage(
               column(3, selectInput("run_all_image_format", "Image format", choices = c("PNG" = "png", "SVG" = "svg", "PDF" = "pdf"), selected = "svg"))
             ),
             fluidRow(
-              column(4, checkboxInput("run_all_render_report", "Create HTML report if R Markdown is available", value = TRUE))
+              column(4, checkboxInput("run_all_render_report", "Create HTML report", value = TRUE))
             ),
             tags$hr(),
             div(style = "margin-top: 10px;",
@@ -1705,6 +1741,7 @@ server <- function(input, output, session) {
     de_base = NULL,
     de = NULL,
     norm_counts = NULL,
+    vst_counts = NULL,
     pca = NULL,
     coldata = NULL,
     coldata_raw = NULL,
@@ -2786,6 +2823,7 @@ server <- function(input, output, session) {
         rv$de <- NULL
       }
       rv$norm_counts <- NULL
+      rv$vst_counts <- NULL
       rv$pca <- NULL
       rv$de_summary <- NULL
       rv$de_design_formula <- NULL
@@ -2824,6 +2862,7 @@ server <- function(input, output, session) {
         auto_update_gene_id_type(res$de_table, "DESeq2 results")
         apply_annotation_to_base(res$de_table, reset_results = FALSE)
         rv$norm_counts <- res$norm_counts
+        rv$vst_counts <- res$vst_counts
         rv$pca <- res$pca_table
         rv$de_summary <- res$summary
         rv$de_design_formula <- res$design_formula
@@ -3815,6 +3854,45 @@ server <- function(input, output, session) {
   output$ma_message <- renderText({
     if (is.null(rv$de)) return("")
     if (!"baseMean" %in% names(rv$de)) "MA plot requires baseMean. Run DESeq2 from quantification/count files or upload a DE table containing baseMean." else ""
+  })
+
+  expression_heatmap_data <- reactive({
+    req(rv$vst_counts, rv$de)
+    prepare_expression_heatmap(
+      rv$vst_counts, rv$de, rv$coldata,
+      gene_mode = input$heatmap_gene_mode %||% "variable",
+      transform = input$heatmap_transform %||% "zscore",
+      top_n = input$heatmap_top_n %||% 50,
+      alpha = input$alpha, lfc_cutoff = input$lfc_cutoff
+    )
+  })
+
+  expression_heatmap_reactive <- reactive({
+    make_expression_heatmap(
+      expression_heatmap_data(),
+      cluster_rows = isTRUE(input$heatmap_cluster_genes),
+      cluster_cols = isTRUE(input$heatmap_cluster_samples),
+      transform = input$heatmap_transform %||% "zscore",
+      color_up = input$color_up %||% "#B2182B",
+      color_down = input$color_down %||% "#2166AC",
+      font_family = input$plot_font_family %||% "serif"
+    )
+  })
+
+  output$expression_heatmap <- renderPlot({
+    tryCatch({
+      heatmap_obj <- expression_heatmap_reactive()
+      grid::grid.newpage()
+      grid::grid.draw(heatmap_obj$gtable)
+    }, error = function(e) {
+      plot.new(); text(0.5, 0.5, e$message, cex = 1.05)
+    })
+  }, width = function() input$heatmap_plot_width %||% 900,
+     height = function() input$heatmap_plot_height %||% 650)
+
+  output$expression_heatmap_status <- renderText({
+    if (is.null(rv$vst_counts)) return("Run DESeq2 from count or quantification data to create an expression heatmap. A DE-results-only upload does not contain sample-level expression.")
+    ""
   })
 
   # PCA conditions selector (default = treatment + control from DESeq2 run)
@@ -5880,6 +5958,34 @@ server <- function(input, output, session) {
   )
   output$download_volcano <- download_plot_server(volcano_reactive, reactive(input$format_volcano), "volcano", reactive(input$de_plot_width), reactive(input$de_plot_height))
   output$download_ma <- download_plot_server(ma_reactive, reactive(input$format_ma), "MA_plot", reactive(input$de_plot_width), reactive(input$de_plot_height))
+  output$download_expression_heatmap <- downloadHandler(
+    filename = function() paste0("expression_heatmap_", input$heatmap_gene_mode %||% "genes", "_", Sys.Date(), ".", input$format_expression_heatmap %||% "svg"),
+    content = function(file) {
+      heatmap_obj <- expression_heatmap_reactive()
+      fmt <- input$format_expression_heatmap %||% "svg"
+      width_px <- input$heatmap_plot_width %||% 900
+      height_px <- input$heatmap_plot_height %||% 650
+      if (fmt == "png") {
+        grDevices::png(file, width = width_px, height = height_px, res = 96)
+      } else if (fmt == "pdf") {
+        grDevices::pdf(file, width = width_px / 96, height = height_px / 96, bg = "white")
+      } else if (requireNamespace("svglite", quietly = TRUE)) {
+        svglite::svglite(file, width = width_px / 96, height = height_px / 96, bg = "white")
+      } else {
+        grDevices::svg(file, width = width_px / 96, height = height_px / 96, bg = "white")
+      }
+      on.exit(grDevices::dev.off(), add = TRUE)
+      grid::grid.newpage(); grid::grid.draw(heatmap_obj$gtable)
+    }
+  )
+  output$download_expression_heatmap_matrix <- downloadHandler(
+    filename = function() paste0("expression_heatmap_matrix_", input$heatmap_gene_mode %||% "genes", "_", Sys.Date(), ".csv"),
+    content = function(file) {
+      mat <- expression_heatmap_data()$matrix
+      out <- data.frame(gene_id = rownames(mat), mat, check.names = FALSE)
+      write.csv(out, file, row.names = FALSE)
+    }
+  )
   output$download_pca <- download_plot_server(pca_reactive, reactive(input$format_pca), "PCA", reactive(input$de_plot_width), reactive(input$de_plot_height))
   output$download_pca_table <- downloadHandler(
     filename = function() paste0("PCA_table_", Sys.Date(), ".csv"),

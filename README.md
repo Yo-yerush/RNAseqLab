@@ -148,6 +148,7 @@ Annotation table downloads include the organism name and tax ID in the filename.
 
 - Volcano plot.
 - MA plot, requires `baseMean`.
+- Expression heatmap from DESeq2 VST values, with top-variable or significant-DE genes; optional row Z-scores; independent gene/sample hierarchical clustering; condition annotations; gene-symbol labels where available; shared up/down plot colors; and plot/matrix downloads.
 - Full-text search across annotation columns.
 - Supports AND-style space-separated terms and OR with `|`.
 
