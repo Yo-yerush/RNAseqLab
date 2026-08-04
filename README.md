@@ -16,7 +16,7 @@ Plant's metabolism and molecular genetic lab, Prof. Rachel Amir group
 
 
 **Cite:**  
-Yerushalmy, Y., & Amir, R. (2026). *RNAseqLab: An Integrated Platform for RNA-seq Analysis and Functional Interpretation*, (Version 0.9.3). Zenodo. [doi.org/10.5281/zenodo.21793100](https://doi.org/10.5281/zenodo.21640051)
+Yerushalmy, Y., & Amir, R. (2026). *RNAseqLab: An Integrated Platform for RNA-seq Analysis and Functional Interpretation*, (Version 0.9.3). Zenodo. [doi.org/10.5281/zenodo.21798390](https://doi.org/10.5281/zenodo.21798390)
 
 ## How To Run On Windows
 
