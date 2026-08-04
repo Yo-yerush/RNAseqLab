@@ -1783,7 +1783,7 @@ ui <- fluidPage(
                     style = "margin: 0;",
                     "RNAseqLab"
                   ),
-                  div("An Integrated Platform for Differential Expression and Downstream Functional Analysis")
+                  div("An Integrated Platform for RNA-seq Analysis and Functional Interpretation")
                 )
               ),
               tags$hr(),
@@ -2277,13 +2277,96 @@ server <- function(input, output, session) {
     )
   }
 
+  # filtering and progress # load_gtf_attributes_for_tx2gene <- function(path) {
+  # filtering and progress #   setProgress(0.15, detail = "Reading GTF/GFF rows")
+  # filtering and progress #   gtf <- read_refseq_gtf(path)
+  # filtering and progress #   attr_df <- fast_parse_refseq_gtf_attributes(gtf$attribute)
+  # filtering and progress #   attr_cols <- setdiff(names(attr_df), ".row_id")
+  # filtering and progress #   if (!length(attr_cols)) stop("No GTF/GFF attributes were found.")
+  # filtering and progress #   rv$tx2gene_gtf_attributes <- attr_df
+  # filtering and progress #   rv$tx2gene_gtf_status <- paste("Loaded", nrow(attr_df), "GTF/GFF rows with", length(attr_cols), "attribute columns.")
+  # filtering and progress #   attr_cols
+  # filtering and progress # }
   load_gtf_attributes_for_tx2gene <- function(path) {
+  
+    setProgress(0.15, detail = "Reading GTF/GFF rows")
     gtf <- read_refseq_gtf(path)
-    attr_df <- fast_parse_refseq_gtf_attributes(gtf$attribute)
+  
+    setProgress(0.35, detail = "Selecting transcript-level rows")
+  
+    transcript_features <- c(
+      "transcript",
+      "mRNA",
+      "mRNA_TE_gene",
+      "pseudogenic_transcript",
+      "tRNA",
+      "ncRNA",
+      "miRNA",
+      "snoRNA",
+      "rRNA",
+      "snRNA"
+    )
+  
+    gtf <- gtf[
+      gtf$feature %in% transcript_features,
+      ,
+      drop = FALSE
+    ]
+  
+    if (nrow(gtf) == 0) {
+      stop("No transcript-level rows were found in the GTF/GFF file.")
+    }
+  
+    setProgress(0.55, detail = "Parsing transcript and gene IDs")
+  
+    attr_df <- fast_parse_refseq_gtf_attributes(
+      gtf$attribute,
+      attribute_keys = c(
+        "transcript_id",
+        "transcript",
+        "transcript_name",
+        "protein_id",
+        "ID",
+        "gene_id",
+        "gene",
+        "gene_name",
+        "locus_tag",
+        "Parent",
+        "Name"
+      )
+    )
+  
+    setProgress(0.90, detail = "Preparing attribute choices")
+  
+    # Remove attribute columns containing no values
     attr_cols <- setdiff(names(attr_df), ".row_id")
-    if (!length(attr_cols)) stop("No GTF/GFF attributes were found.")
+  
+    nonempty_cols <- vapply(
+      attr_df[attr_cols],
+      function(x) {
+        any(!is.na(x) & nzchar(trimws(as.character(x))))
+      },
+      logical(1)
+    )
+  
+    attr_cols <- attr_cols[nonempty_cols]
+  
+    if (!length(attr_cols)) {
+      stop("No usable transcript or gene ID attributes were found.")
+    }
+  
+    attr_df <- attr_df[, c(".row_id", attr_cols), drop = FALSE]
+  
     rv$tx2gene_gtf_attributes <- attr_df
-    rv$tx2gene_gtf_status <- paste("Loaded", nrow(attr_df), "GTF/GFF rows with", length(attr_cols), "attribute columns.")
+  
+    rv$tx2gene_gtf_status <- paste(
+      "Loaded",
+      nrow(attr_df),
+      "transcript-level GTF/GFF rows with",
+      length(attr_cols),
+      "attribute columns."
+    )
+  
     attr_cols
   }
 
@@ -2717,17 +2800,58 @@ server <- function(input, output, session) {
     ))
   })
 
+  # add progress bar # observeEvent(input$tx2gene_gtf_file, {
+  # add progress bar #   req(input$tx2gene_gtf_file$datapath)
+  # add progress bar #   rv$tx2gene_gtf_attributes <- NULL
+  # add progress bar #   rv$tx2gene_gtf_status <- "Loading GTF/GFF attributes..."
+  # add progress bar #   tryCatch({
+  # add progress bar #     load_gtf_attributes_for_tx2gene(input$tx2gene_gtf_file$datapath)
+  # add progress bar #   }, error = function(e) {
+  # add progress bar #     rv$tx2gene_gtf_status <- paste("GTF/GFF load error:", e$message)
+  # add progress bar #     showNotification(rv$tx2gene_gtf_status, type = "error", duration = 12)
+  # add progress bar #     append_log(rv$tx2gene_gtf_status)
+  # add progress bar #   })
+  # add progress bar # })
   observeEvent(input$tx2gene_gtf_file, {
     req(input$tx2gene_gtf_file$datapath)
-    rv$tx2gene_gtf_attributes <- NULL
-    rv$tx2gene_gtf_status <- "Loading GTF/GFF attributes..."
-    tryCatch({
-      load_gtf_attributes_for_tx2gene(input$tx2gene_gtf_file$datapath)
-    }, error = function(e) {
-      rv$tx2gene_gtf_status <- paste("GTF/GFF load error:", e$message)
-      showNotification(rv$tx2gene_gtf_status, type = "error", duration = 12)
-      append_log(rv$tx2gene_gtf_status)
-    })
+
+    withProgress(
+      message = "Loading GTF/GFF attributes",
+      value = 0,
+      {
+        rv$tx2gene_gtf_attributes <- NULL
+        rv$tx2gene_gtf_status <- "Loading GTF/GFF attributes..."
+
+        tryCatch({
+          setProgress(
+            value = 0.1,
+            detail = "Reading annotation file"
+          )
+
+          load_gtf_attributes_for_tx2gene(
+            input$tx2gene_gtf_file$datapath
+          )
+
+          setProgress(
+            value = 1,
+            detail = "Transcript and gene attributes loaded"
+          )
+        }, error = function(e) {
+          rv$tx2gene_gtf_status <- paste(
+            "GTF/GFF attribute error:",
+            e$message
+          )
+
+          showNotification(
+            rv$tx2gene_gtf_status,
+            type = "error",
+            duration = 12
+          )
+
+          append_log(rv$tx2gene_gtf_status)
+        })
+      }
+    )
   })
 
   output$tx2gene_gtf_preview <- renderTable({

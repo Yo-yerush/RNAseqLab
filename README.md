@@ -3,7 +3,8 @@
   RNAseqLab: Expression & Downstream Analysis Dashboard
 </h1>
 
-A local R Shiny dashboard for RNA-seq differential expression analysis, count/quantification import, annotation building, dependency checks, and downstream visualization.
+RNAseqLab is an interactive R Shiny platform for comprehensive RNA-seq analysis, supporting count and transcript quantification data, differential gene expression, gene set enrichment analysis (GSEA), transcript and isoform-level analyses, functional annotation, and downstream exploration and visualization.
+
 
 <h1></h1>
 
