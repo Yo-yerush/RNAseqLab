@@ -65,10 +65,11 @@ safe_include_graphic <- function(path) {
 }
 
 section_info <- data.frame(
-  folder = c("Core_outputs", "GO", "KEGG", "MSigDB_Hallmark", "PMN", "Gene_Families", "TE_analysis"),
-  title = c("Core Differential Expression Outputs", "GO Analysis", "KEGG Analysis", "MSigDB / Hallmark Analysis", "PMN Pathway Analysis", "Gene Family Analysis", "TE Analysis"),
+  folder = c("Core_outputs", "GSEA", "GO", "KEGG", "MSigDB_Hallmark", "PMN", "Gene_Families", "TE_analysis"),
+  title = c("Core Differential Expression Outputs", "Gene Set Enrichment Analysis", "GO Analysis", "KEGG Analysis", "MSigDB / Hallmark Analysis", "PMN Pathway Analysis", "Gene Family Analysis", "TE Analysis"),
   text = c(
     "Core outputs summarize the loaded differential expression results and quality-control style plots. Volcano and MA plots show the relationship between fold change, significance, and abundance. PCA is included when count-based DESeq2 input was used.",
+    "GSEA outputs test pathways across the complete ranked gene list without first applying a significant-gene cutoff. NES plots summarize positive and negative enrichment, while the enrichment curve and leading-edge table identify the genes driving the strongest selected pathway.",
     "GO outputs test whether biological-process, molecular-function, or cellular-component terms are enriched in the selected DEG direction. REVIGO-like outputs reduce redundant GO terms, offspring summaries inspect selected GO parent terms, and stress tables focus on abiotic-stress related GO groups.",
     "KEGG outputs summarize pathway-level enrichment. Bubble plots show enriched pathways, while Pathview maps color significant genes on the selected KEGG pathway diagram when Pathview could generate a map.",
     "MSigDB Hallmark outputs test whether curated Hallmark gene sets are over-represented in the selected DEG direction. The plot highlights the strongest enriched sets after FDR filtering.",
@@ -81,6 +82,7 @@ section_info <- data.frame(
 
 section_interpretation <- c(
   Core_outputs = "Interpretation: volcano plots separate genes by fold-change and significance; MA plots help check whether fold-change patterns depend on abundance; PCA shows sample-level structure and possible group separation when count data are available.",
+  GSEA = "Interpretation: positive NES indicates enrichment near the top of the ranked list and negative NES indicates enrichment near the bottom. Lower FDR supports stronger evidence, while leading-edge genes are the subset contributing most to the enrichment score.",
   GO = "Interpretation: enriched GO terms point to biological themes among the selected DEG direction. Lower p-values/FDR and higher fold enrichment indicate stronger term over-representation. REVIGO-like plots group redundant GO terms so broader patterns are easier to read.",
   KEGG = "Interpretation: KEGG enrichment highlights pathways whose genes show stronger DEG signal than expected. Pathview maps show where significant expression changes fall inside a pathway diagram; red and blue usually indicate opposite fold-change directions.",
   MSigDB_Hallmark = "Interpretation: Hallmark enrichment tests curated gene programs. Stronger fold enrichment and lower FDR suggest a gene program is over-represented in the selected DEG direction.",

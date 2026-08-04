@@ -1297,6 +1297,226 @@ make_expression_heatmap <- function(prepared, cluster_rows = TRUE, cluster_cols 
   do.call(pheatmap::pheatmap, args)
 }
 
+prepare_gsea_ranks <- function(de_df, id_col = ".gsea_gene_id",
+                               ranking = c("stat", "signed_p", "log2fc")) {
+  ranking <- match.arg(ranking)
+  if (is.null(de_df) || !nrow(de_df) || !id_col %in% names(de_df)) stop("No mapped genes are available for GSEA.")
+  stat_col <- first_existing_col(de_df, c("stat", "Statistic", "waldStatistic", "WaldStatistic"))
+  p_col <- first_existing_col(de_df, c("pValue", "pvalue", "PValue", "P.Value"))
+  if (ranking == "stat" && is.null(stat_col)) stop("DESeq2 statistic is unavailable. Choose signed -log10(p) or log2FoldChange.")
+  if (ranking == "signed_p" && is.null(p_col)) stop("Raw p-values are unavailable. Signed -log10(p) requires a pValue column.")
+  if (!"log2FoldChange" %in% names(de_df)) stop("GSEA ranking requires log2FoldChange.")
+  score <- switch(ranking,
+    stat = suppressWarnings(as.numeric(de_df[[stat_col]])),
+    log2fc = suppressWarnings(as.numeric(de_df$log2FoldChange)),
+    signed_p = {
+      p <- suppressWarnings(as.numeric(de_df[[p_col]]))
+      positive <- p[is.finite(p) & p > 0]
+      floor_p <- if (length(positive)) min(positive) * 0.1 else .Machine$double.xmin
+      p[is.finite(p) & p <= 0] <- floor_p
+      sign(suppressWarnings(as.numeric(de_df$log2FoldChange))) * -log10(pmax(p, .Machine$double.xmin))
+    }
+  )
+  ids <- trimws(as.character(de_df[[id_col]]))
+  keep <- !is.na(ids) & nzchar(ids) & is.finite(score)
+  ranked <- data.frame(gene_id = ids[keep], score = score[keep], row_index = which(keep), stringsAsFactors = FALSE)
+  if (nrow(ranked) < 10) stop("Too few genes have usable IDs and ranking values for GSEA.")
+  ranked <- ranked[order(-abs(ranked$score), ranked$gene_id), , drop = FALSE]
+  ranked <- ranked[!duplicated(ranked$gene_id), , drop = FALSE]
+  ranked <- ranked[order(-ranked$score, ranked$gene_id), , drop = FALSE]
+  tie_scale <- max(1, max(abs(ranked$score), na.rm = TRUE)) * 1e-12
+  ranked$score <- ranked$score + rev(seq_len(nrow(ranked))) * tie_scale
+  stats::setNames(ranked$score, ranked$gene_id)
+}
+
+gsea_go_adapter <- function(de_df, orgdb = "org.At.tair.db", keytype = "TAIR", ontology = "BP") {
+  required <- c("AnnotationDbi", "GO.db", orgdb)
+  missing <- required[!vapply(required, requireNamespace, logical(1), quietly = TRUE)]
+  if (length(missing)) stop("Missing required packages: ", paste(missing, collapse = ", "))
+  orgdb_obj <- getExportedValue(orgdb, orgdb)
+  keytype <- toupper(keytype)
+  if (!keytype %in% AnnotationDbi::keytypes(orgdb_obj)) stop("Gene ID type '", keytype, "' is unavailable in ", orgdb, ".")
+  de_df$.gsea_gene_id <- normalize_orgdb_gene_keys(de_df$gene_id, orgdb, keytype)
+  keys <- unique(de_df$.gsea_gene_id[!is.na(de_df$.gsea_gene_id) & nzchar(de_df$.gsea_gene_id)])
+  cols <- AnnotationDbi::columns(orgdb_obj)
+  go_col <- if ("GOALL" %in% cols) "GOALL" else "GO"
+  ont_col <- if ("ONTOLOGYALL" %in% cols) "ONTOLOGYALL" else "ONTOLOGY"
+  annot <- suppressMessages(AnnotationDbi::select(orgdb_obj, keys = keys, keytype = keytype, columns = c(go_col, ont_col)))
+  annot <- annot[!is.na(annot[[go_col]]) & annot[[ont_col]] == ontology, c(keytype, go_col), drop = FALSE]
+  annot <- unique(annot)
+  pathways <- split(as.character(annot[[keytype]]), as.character(annot[[go_col]]))
+  pathways <- lapply(pathways, unique)
+  labels <- stats::setNames(vapply(names(pathways), function(id) {
+    tryCatch(GO.db::GOTERM[[id]]@Term, error = function(e) id)
+  }, character(1)), names(pathways))
+  list(de = de_df, pathways = pathways, labels = labels, database = paste("GO", ontology))
+}
+
+gsea_te_superfamily_adapter <- function(
+    de_df,
+    description_file = "https://github.com/Yo-yerush/RA_lab_db/raw/refs/heads/main/description_files/At_custom_description_file.csv.gz",
+    te_file = "https://raw.githubusercontent.com/Yo-yerush/RA_lab_db/refs/heads/main/description_files/TAIR10_Transposable_Elements.txt") {
+  if (!exists("load_te_gene_map", mode = "function") || !exists("load_te_file", mode = "function")) {
+    stop("Arabidopsis TE annotation helpers are unavailable.")
+  }
+  de_df$.gsea_gene_id <- normalize_gene_id(de_df$gene_id)
+  gene_map <- load_te_gene_map(description_file)
+  te_meta <- load_te_file(te_file)
+  te_map <- merge(gene_map, te_meta, by = "Derives_from")
+  te_map$gene_id <- normalize_gene_id(te_map$gene_id)
+  te_map$Transposon_Super_Family <- trimws(as.character(te_map$Transposon_Super_Family))
+  te_map <- unique(te_map[
+    !is.na(te_map$gene_id) & nzchar(te_map$gene_id) &
+      !is.na(te_map$Transposon_Super_Family) & nzchar(te_map$Transposon_Super_Family),
+    c("gene_id", "Transposon_Super_Family"), drop = FALSE
+  ])
+  if (!nrow(te_map)) stop("No Arabidopsis TE genes could be mapped to TE superfamilies.")
+  pathways <- split(te_map$gene_id, te_map$Transposon_Super_Family)
+  pathways <- lapply(pathways, unique)
+  labels <- stats::setNames(paste0("TEG: ", names(pathways)), names(pathways))
+  list(
+    de = de_df,
+    pathways = pathways,
+    labels = labels,
+    database = "Arabidopsis TEG superfamilies"
+  )
+}
+
+gsea_database_adapter <- function(de_df, database, orgdb = NULL, keytype = NULL,
+                                  kegg_species = "ath", msigdb_species = "Homo sapiens",
+                                  pmn_cyc_db = "AraCyc", gmt_file = NULL) {
+  database <- match.arg(database, c("go_bp", "kegg", "hallmark", "pmn", "te_superfamily", "gmt"))
+  if (database == "go_bp") return(gsea_go_adapter(de_df, orgdb, keytype, "BP"))
+  if (database == "kegg") {
+    mapped <- map_de_ids_for_kegg(de_df, gene_id_type = keytype, orgdb = orgdb)
+    mapped$.gsea_gene_id <- clean_gene_id(mapped$gene_id)
+    dat <- get_kegg_genes_cached(kegg_species)
+    pathways <- lapply(dat$genes_by_pathway, function(x) unique(clean_gene_id(x)))
+    return(list(de = mapped, pathways = pathways, labels = dat$pathway_names, database = paste("KEGG", kegg_species)))
+  }
+  if (database == "hallmark") {
+    hallmark_ids <- trimws(as.character(de_df$gene_id))
+    hallmark_ids <- sub("\\.0$", "", hallmark_ids)
+    if (toupper(keytype %||% "SYMBOL") %in% c("SYMBOL", "TAIR", "ENSEMBL")) hallmark_ids <- toupper(hallmark_ids)
+    hallmark_ids[is.na(hallmark_ids) | !nzchar(hallmark_ids)] <- NA_character_
+    de_df$.gsea_gene_id <- hallmark_ids
+    pathways <- load_msigdb_hallmark_sets(msigdb_species, keytype)
+    labels <- stats::setNames(gsub("_", " ", sub("^HALLMARK_", "", names(pathways))), names(pathways))
+    return(list(de = de_df, pathways = pathways, labels = labels, database = "MSigDB Hallmark"))
+  }
+  if (database == "pmn") {
+    de_df$.gsea_gene_id <- gene_join_key(de_df$gene_id)
+    dat <- get_pmn_genes(pmn_cyc_db)
+    return(list(de = de_df, pathways = dat$genes_by_pathway, labels = dat$pathway_names, database = paste("PMN", pmn_cyc_db)))
+  }
+  if (database == "te_superfamily") return(gsea_te_superfamily_adapter(de_df))
+  if (is.null(gmt_file) || !file.exists(gmt_file)) stop("Upload a GMT file before running custom GSEA.")
+  if (!requireNamespace("fgsea", quietly = TRUE)) stop("Package 'fgsea' is required for GMT input.")
+  de_df$.gsea_gene_id <- gene_join_key(de_df$gene_id)
+  pathways <- fgsea::gmtPathways(gmt_file)
+  pathways <- lapply(pathways, gene_join_key)
+  list(de = de_df, pathways = pathways, labels = stats::setNames(names(pathways), names(pathways)), database = "Custom GMT")
+}
+
+run_fgsea_analysis <- function(de_df, database, ranking = c("stat", "signed_p", "log2fc"),
+                               min_size = 15, max_size = 500, orgdb = NULL, keytype = NULL,
+                               kegg_species = "ath", msigdb_species = "Homo sapiens",
+                               pmn_cyc_db = "AraCyc", gmt_file = NULL) {
+  if (!requireNamespace("fgsea", quietly = TRUE)) stop("Package 'fgsea' is required for Gene Set Enrichment Analysis.")
+  ranking <- match.arg(ranking)
+  adapter <- gsea_database_adapter(de_df, database, orgdb, keytype, kegg_species, msigdb_species, pmn_cyc_db, gmt_file)
+  ranks <- prepare_gsea_ranks(adapter$de, ranking = ranking)
+  overlap <- lengths(lapply(adapter$pathways, intersect, y = names(ranks)))
+  if (!length(overlap) || max(overlap) < min_size) stop("No gene sets have enough genes overlapping the ranked list. Check organism and Gene ID settings.")
+  res <- fgsea::fgseaMultilevel(pathways = adapter$pathways, stats = ranks,
+                                minSize = as.integer(min_size), maxSize = as.integer(max_size),
+                                eps = 1e-10, nproc = 1)
+  res <- as.data.frame(res, stringsAsFactors = FALSE)
+  if (!nrow(res)) stop("No gene sets passed the selected size filters.")
+  res$Term <- unname(adapter$labels[as.character(res$pathway)])
+  missing_term <- is.na(res$Term) | !nzchar(res$Term)
+  res$Term[missing_term] <- as.character(res$pathway[missing_term])
+  res$Direction <- ifelse(res$NES >= 0, "Positive", "Negative")
+  res$leading_edge_genes <- vapply(res$leadingEdge, function(x) paste(x, collapse = "; "), character(1))
+  res <- res[order(res$padj, -abs(res$NES), na.last = TRUE), , drop = FALSE]
+  rownames(res) <- NULL
+  list(results = res, pathways = adapter$pathways, labels = adapter$labels, ranks = ranks,
+       mapped_de = adapter$de, database = adapter$database, ranking = ranking)
+}
+
+gsea_results_for_display <- function(gsea_result) {
+  out <- gsea_result$results
+  out$leadingEdge <- NULL
+  first <- intersect(c("pathway", "Term", "NES", "padj", "pval", "size", "leading_edge_genes"), names(out))
+  out[, c(first, setdiff(names(out), first)), drop = FALSE]
+}
+
+make_gsea_nes_plot <- function(gsea_result, fdr_cutoff = 0.05, top_n = 20,
+                               color_up = "#B2182B", color_down = "#2166AC",
+                               plot_theme = "classic", font_family = "serif") {
+  d <- gsea_result$results
+  d <- d[is.finite(d$NES) & is.finite(d$padj) & d$padj <= fdr_cutoff, , drop = FALSE]
+  if (!nrow(d)) stop("No GSEA pathways pass the current FDR cutoff.")
+  d <- head(d[order(d$padj, -abs(d$NES)), , drop = FALSE], top_n)
+  term_labels <- make.unique(stringr::str_trunc(d$Term, 65))
+  d$Term_plot <- factor(term_labels, levels = rev(term_labels))
+  ggplot2::ggplot(d, ggplot2::aes(x = NES, y = Term_plot, size = size, color = Direction)) +
+    ggplot2::geom_point(alpha = 0.85) +
+    ggplot2::scale_color_manual(values = c(Positive = color_up, Negative = color_down)) +
+    ggplot2::geom_vline(xintercept = 0, linetype = 2, color = "grey55") +
+    plot_theme_choice(plot_theme, base_size = 12, font_family = font_family) +
+    ggplot2::labs(title = paste0(gsea_result$database, " GSEA"), x = "Normalized enrichment score (NES)", y = NULL, size = "Set size", color = NULL)
+}
+
+make_gsea_enrichment_plot <- function(gsea_result, pathway, plot_theme = "classic", font_family = "serif") {
+  if (is.null(pathway) || !pathway %in% names(gsea_result$pathways)) stop("Select a GSEA pathway.")
+  term <- unname(gsea_result$labels[pathway]); if (is.na(term) || !nzchar(term)) term <- pathway
+  fgsea::plotEnrichment(gsea_result$pathways[[pathway]], gsea_result$ranks) +
+    plot_theme_choice(plot_theme, base_size = 12, font_family = font_family) +
+    ggplot2::labs(title = term, subtitle = pathway, x = "Rank in ordered gene list", y = "Running enrichment score")
+}
+
+gsea_pathway_gene_table <- function(gsea_result, pathway, leading_only = FALSE) {
+  if (is.null(pathway) || !pathway %in% names(gsea_result$pathways)) return(data.frame())
+  genes <- if (isTRUE(leading_only)) {
+    hit <- gsea_result$results[gsea_result$results$pathway == pathway, , drop = FALSE]
+    if (!nrow(hit)) character() else hit$leadingEdge[[1]]
+  } else gsea_result$pathways[[pathway]]
+  d <- gsea_result$mapped_de[gsea_result$mapped_de$.gsea_gene_id %in% genes, , drop = FALSE]
+  if (!nrow(d)) return(data.frame())
+  d$GSEA_pathway <- pathway
+  d$GSEA_term <- unname(gsea_result$labels[pathway])
+  d$Leading_edge <- d$.gsea_gene_id %in% (gsea_result$results$leadingEdge[[match(pathway, gsea_result$results$pathway)]] %||% character())
+  d <- d[order(match(d$.gsea_gene_id, genes), d$padj, na.last = TRUE), , drop = FALSE]
+  d$.gsea_gene_id <- NULL
+  rownames(d) <- NULL
+  d
+}
+
+make_gsea_pathway_volcano <- function(gsea_result, pathway, alpha = 0.05, lfc_cutoff = 1,
+                                      color_up = "#B2182B", color_down = "#2166AC", color_ns = "#B3B3B3",
+                                      point_size = 1, point_alpha = 0.65,
+                                      plot_theme = "classic", font_family = "serif") {
+  if (is.null(pathway) || !pathway %in% names(gsea_result$pathways)) stop("Select a GSEA pathway.")
+  d <- gsea_result$mapped_de
+  members <- d$.gsea_gene_id %in% gsea_result$pathways[[pathway]]
+  d <- d[members, , drop = FALSE]
+  if (!nrow(d)) stop("No loaded genes match the selected GSEA pathway.")
+  d <- classify_de(d, alpha = alpha, lfc_cutoff = lfc_cutoff)
+  d$neglog10padj <- -log10(pmax(as.numeric(d$padj), .Machine$double.xmin))
+  term <- unname(gsea_result$labels[pathway]); if (is.na(term) || !nzchar(term)) term <- pathway
+  ggplot2::ggplot(d, ggplot2::aes(log2FoldChange, neglog10padj, color = DE_class)) +
+    ggplot2::geom_point(size = point_size, alpha = point_alpha) +
+    ggplot2::scale_color_manual(
+      values = c(up = color_up, down = color_down, not_significant = color_ns),
+      labels = c(up = "Upregulated", down = "Downregulated", not_significant = "Not significant")
+    ) +
+    ggplot2::geom_vline(xintercept = c(-lfc_cutoff, lfc_cutoff), linetype = 2, color = "grey55") +
+    ggplot2::geom_hline(yintercept = -log10(alpha), linetype = 2, color = "grey55") +
+    plot_theme_choice(plot_theme, base_size = 12, font_family = font_family) +
+    ggplot2::labs(title = term, subtitle = pathway, x = "log2 fold change", y = "-log10 adjusted p-value", color = "Class")
+}
+
 run_deseq2_from_rsem <- function(folder, coldata, treatment, control, lfc_shrink = FALSE, min_count = 10,
                                  effect_col = NULL, effect_level = NULL, use_interaction = FALSE,
                                  all_vs_control = TRUE, quant_type = "rsem", tx2gene_file = NULL,

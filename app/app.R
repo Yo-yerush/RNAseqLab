@@ -132,7 +132,7 @@ dependency_catalog <- data.frame(
     "ggplot2", "dplyr", "readr", "stringr", "tibble", "tidyr", "readxl",
     "DESeq2", "tximport", "SummarizedExperiment", "ashr", "VennDiagram",
     "topGO", "GO.db", "AnnotationDbi", "rrvgo", "ggrepel",
-    "KEGGREST", "pathview", "msigdbr", "biomaRt",
+    "KEGGREST", "pathview", "msigdbr", "fgsea", "biomaRt",
     "RColorBrewer", "pheatmap", "stringi", "data.table",
     "patchwork", "gridExtra", "futile.logger", "rmarkdown", "knitr", "Pandoc"
   ),
@@ -164,6 +164,7 @@ dependency_catalog <- data.frame(
     "KEGG pathway enrichment and pathway gene-set downloads.",
     "Pathview pathway map generation.",
     "MSigDB/Hallmark enrichment.",
+    "Preranked Gene Set Enrichment Analysis for GO, KEGG, Hallmark, PMN, and GMT gene sets.",
     "Optional HGNC/human gene-family ID mapping fallback.",
     "Color palettes for plots and REVIGO-like views.",
     "Heatmap support for legacy/helper workflows.",
@@ -204,6 +205,7 @@ dependency_catalog <- data.frame(
     "KEGG enrichment will not work.",
     "Pathview map generation will not work.",
     "Hallmark analysis will not work.",
+    "Gene Set Enrichment Analysis will not work.",
     "Some human gene-family mapping fallbacks will be unavailable.",
     "Some palette choices may fail.",
     "Expression and legacy/helper heatmaps may fail.",
@@ -788,6 +790,10 @@ ui <- fluidPage(
       conditionalPanel("input.tabs == 'DE results'",
         sliderInput("de_plot_width",  "Plot width (px)",  min = 200, max = 1600, value = 350, step = 50),
         sliderInput("de_plot_height", "Plot height (px)", min = 200, max = 1200, value = 200, step = 50)
+      ),
+      conditionalPanel("input.tabs == 'Gene Set Enrichment (GSEA)'",
+        sliderInput("gsea_plot_width",  "GSEA plot width (px)",  min = 300, max = 1600, value = 750, step = 50),
+        sliderInput("gsea_plot_height", "GSEA plot height (px)", min = 250, max = 1200, value = 500, step = 50)
       ),
       conditionalPanel("input.tabs == 'GO'",
         sliderInput("go_plot_width",  "Plot width (px)",  min = 200, max = 1600, value = 450, step = 50),
@@ -1408,6 +1414,59 @@ ui <- fluidPage(
           )
         ),
 
+        tabPanel("Gene Set Enrichment (GSEA)",
+          wellPanel(
+            fluidRow(
+              column(4, uiOutput("gsea_database_ui")),
+              column(4, uiOutput("gsea_ranking_ui")),
+              column(4,
+                conditionalPanel("input.gsea_database == 'gmt'",
+                  fileInput("gsea_gmt_file", "Custom gene sets (GMT)", accept = c(".gmt"))
+                )
+              )
+            ),
+            fluidRow(
+              column(2, numericInput("gsea_min_size", "Minimum set size", value = 15, min = 2, max = 500, step = 1)),
+              column(2, numericInput("gsea_max_size", "Maximum set size", value = 500, min = 10, max = 5000, step = 10)),
+              column(2, numericInput("gsea_fdr_cutoff", "FDR cutoff", value = 0.05, min = 0, max = 1, step = 0.01)),
+              column(2, numericInput("gsea_top_n", "Top pathways", value = 20, min = 5, max = 100, step = 5)),
+              column(4, br(), actionButton("run_gsea", "Run GSEA", class = "btn-primary", style = "width:100%;"))
+            ),
+            uiOutput("gsea_database_status_ui"),
+            div(class = "muted", "Organism and database settings mirror the corresponding GO, KEGG, Hallmark, or PMN tab; manual changes in those tabs also apply here."),
+            div(class = "muted", "GSEA uses all tested genes. DESeq2 statistic is preferred; signed -log10(p) uses the raw p-value and log2FoldChange sign.")
+          ),
+          uiOutput("gsea_pathway_selector_ui"),
+          tabsetPanel(id = "gsea_results_tabs",
+            tabPanel("Results",
+              h4("Normalized enrichment scores"),
+              plotOutput("gsea_nes_plot", width = "auto", height = "auto"),
+              download_plot_ui("gsea_nes", "Download NES plot"),
+              tags$hr(),
+              DTOutput("gsea_results_table"),
+              div(class = "download-row", downloadButton("download_gsea_results", "Download GSEA results"))
+            ),
+            tabPanel("Enrichment curve",
+              h4("Selected pathway enrichment curve"),
+              plotOutput("gsea_enrichment_plot", width = "auto", height = "auto"),
+              download_plot_ui("gsea_enrichment", "Download enrichment curve")
+            ),
+            tabPanel("Leading-edge genes",
+              h4("Core genes driving the selected enrichment"),
+              DTOutput("gsea_leading_edge_table"),
+              div(class = "download-row", downloadButton("download_gsea_leading_edge", "Download leading-edge genes"))
+            ),
+            tabPanel("Pathway genes",
+              h4("Selected pathway genes on the DE volcano"),
+              plotOutput("gsea_pathway_volcano", width = "auto", height = "auto"),
+              download_plot_ui("gsea_pathway_volcano", "Download pathway volcano"),
+              tags$hr(),
+              DTOutput("gsea_pathway_gene_table"),
+              div(class = "download-row", downloadButton("download_gsea_pathway_genes", "Download pathway genes"))
+            )
+          )
+        ),
+
         tabPanel("TE analysis (At)",
           tabsetPanel(
             tabPanel("Overlapped TEs",
@@ -1681,6 +1740,10 @@ ui <- fluidPage(
                 tags$li(strong("DE preview: "), "The compact DE summary and preview table are shown in the Data input tab with DE and normalized-count downloads."),
                 tags$li(strong("GO analysis: "), "Runs topGO enrichment, REVIGO-like semantic reduction, GO offspring summaries, and abiotic-stress GO summaries. Requires a compatible OrgDb package and Gene ID type."),
                 tags$li(strong("KEGG analysis: "), "Downloads/caches KEGG pathways by KEGG organism code. If needed, the app maps the selected Gene ID type to KEGG-compatible Entrez IDs through the selected OrgDb. Pathview uses the same mapping to color pathway genes by log2FC."),
+                tags$li(
+                  strong("Gene Set Enrichment (GSEA): "),
+                  "Runs preranked ", code("fgseaMultilevel"), " over all tested genes, so the input must not be restricted to significant genes. Choose GO Biological Process, KEGG, Hallmark, PMN, an uploaded GMT file, or TAIR10 transposable-element genes grouped by TE superfamily when Arabidopsis (tax ID 3702) is selected. GO, KEGG, Hallmark, and PMN organism/database settings mirror their corresponding tabs. Rank by the DESeq2 statistic when available (recommended), signed ", code("-log10(pValue)"), ", or ", code("log2FoldChange"), ". Minimum and maximum set sizes control which gene sets are tested. Results include NES and FDR, an NES dotplot, enrichment curve, leading-edge genes, and a pathway-gene table. The Pathway genes volcano shows only genes in the selected pathway, without an all-gene background, and classifies them using the current adjusted-p-value and log2FC thresholds."
+                ),
                 tags$li(strong("PMN analysis: "), "Runs Plant Metabolic Network pathway enrichment for plant Cyc databases such as AraCyc, OryzaCyc, CornCyc, and TomatoCyc. The app auto-selects a PMN database when the selected organism is mapped; otherwise select or type a Cyc database manually."),
                 tags$li(strong("MSigDB/Hallmark: "), "Runs Hallmark over-representation analysis with ", code("msigdbr"), ". The run button appears only for species available in MSigDB."),
                 tags$li(strong("TE analysis: "), "Arabidopsis-only TE workflows use TAIR10 TE metadata and TAIR gene ranges. The TEG tabs run TE superfamily enrichment and TEG volcano plots. The Overlapped TEs tab finds DE genes with nearby or gene-body TE overlaps, shows an overlapped-gene volcano, TE family counts, and Fisher-test TE family enrichment using either all TAIR10 TEs or region-aware TEs as background."),
@@ -1783,6 +1846,7 @@ server <- function(input, output, session) {
     msigdb_plot = NULL,
     hallmark_gene_lookup = NULL,
     hallmark_genes = NULL,
+    gsea = NULL,
     kegg_enrichment = NULL,
     kegg_enrichment_source = NULL,
     kegg_enrichment_modal_data = NULL,
@@ -1924,6 +1988,7 @@ server <- function(input, output, session) {
     rv$pmn_plot <- NULL
     rv$pmn_pathway_lookup <- NULL
     rv$pmn_pathway_genes <- NULL
+    rv$gsea <- NULL
     rv$pathview_pathway <- NULL
     rv$pathview_pwid <- NULL
     rv$pathview_table <- NULL
@@ -2193,6 +2258,7 @@ server <- function(input, output, session) {
     rv$msigdb_plot <- NULL
     rv$hallmark_gene_lookup <- NULL
     rv$hallmark_genes <- NULL
+    rv$gsea <- NULL
     rv$kegg_enrichment <- NULL
     rv$kegg_bubble <- NULL
     rv$pmn_enrichment <- NULL
@@ -5112,6 +5178,13 @@ server <- function(input, output, session) {
     add_param("GO", "REVIGO layout", input$revigo_algorithm %||% "umap")
     add_param("GO", "Abiotic stress gene set", input$stress_dataset %||% "all")
 
+    add_param("GSEA", "Database", input$gsea_database %||% "go_bp")
+    add_param("GSEA", "Ranking", input$gsea_ranking %||% "log2fc")
+    add_param("GSEA", "Minimum set size", input$gsea_min_size %||% 15)
+    add_param("GSEA", "Maximum set size", input$gsea_max_size %||% 500)
+    add_param("GSEA", "FDR display cutoff", input$gsea_fdr_cutoff %||% 0.05)
+    add_param("GSEA", "Top pathways", input$gsea_top_n %||% 20)
+
     add_param("KEGG / Pathview", "KEGG organism code", input$kegg_species %||% "")
     add_param("KEGG / Pathview", "KEGG enrichment source", input$kegg_enrichment_source %||% "gene")
     add_param("KEGG / Pathview", "KEGG EC column", input$kegg_ec_column %||% "")
@@ -5184,6 +5257,8 @@ server <- function(input, output, session) {
 
     add_param("Plot sizes", "DE plot width", input$de_plot_width %||% 350)
     add_param("Plot sizes", "DE plot height", input$de_plot_height %||% 200)
+    add_param("Plot sizes", "GSEA plot width", input$gsea_plot_width %||% 750)
+    add_param("Plot sizes", "GSEA plot height", input$gsea_plot_height %||% 500)
     add_param("Plot sizes", "GO plot width", input$go_plot_width %||% 450)
     add_param("Plot sizes", "GO plot height", input$go_plot_height %||% 400)
     add_param("Plot sizes", "KEGG plot width", input$kegg_plot_width %||% 1000)
@@ -5274,6 +5349,9 @@ server <- function(input, output, session) {
 
   run_all_enrichment_choices <- reactive({
     choices <- character()
+    if (!is.null(rv$de) && requireNamespace("fgsea", quietly = TRUE)) {
+      choices <- c(choices, "GSEA (current database and ranking)" = "gsea")
+    }
     go_available <- nzchar(trimws(input$go_orgdb %||% ""))
     if (isTRUE(go_available)) {
       choices <- c(
@@ -5702,6 +5780,40 @@ server <- function(input, output, session) {
       pca = list(label = "PCA plot", run = function(out_dir) {
         req(rv$pca)
         run_all_save_plot(pca_reactive(), run_all_plot_file(out_dir, "PCA", img_fmt), input$de_plot_width, input$de_plot_height)
+      }),
+      gsea = list(label = "Gene Set Enrichment Analysis", run = function(out_dir) {
+        req(rv$de, input$gsea_ranking)
+        db <- input$gsea_database %||% "go_bp"
+        if (identical(db, "gmt")) req(input$gsea_gmt_file$datapath)
+        if (identical(db, "te_superfamily") &&
+            !identical(suppressWarnings(as.integer(rv$selected_tax_id)), 3702L)) {
+          stop("TEG-superfamily GSEA is available only for Arabidopsis thaliana.")
+        }
+        rv$gsea <- run_fgsea_analysis(
+          rv$de, database = db, ranking = input$gsea_ranking,
+          min_size = input$gsea_min_size %||% 15, max_size = input$gsea_max_size %||% 500,
+          orgdb = input$go_orgdb %||% NULL, keytype = input$go_keytype %||% NULL,
+          kegg_species = input$kegg_species %||% "ath",
+          msigdb_species = input$msigdb_species %||% rv$selected_organism_label,
+          pmn_cyc_db = input$pmn_cyc_db %||% "AraCyc",
+          gmt_file = if (identical(db, "gmt")) input$gsea_gmt_file$datapath else NULL
+        )
+        files <- run_all_write_csv(gsea_results_for_display(rv$gsea), file.path(out_dir, "GSEA_results.csv"))
+        nes_plot <- tryCatch(gsea_nes_plot_reactive(), error = function(e) NULL)
+        if (!is.null(nes_plot)) files <- c(files, run_all_save_plot(nes_plot, run_all_plot_file(out_dir, "GSEA_NES", img_fmt), input$gsea_plot_width, input$gsea_plot_height))
+        top_pathway <- as.character(rv$gsea$results$pathway[1])
+        files <- c(files,
+          run_all_write_csv(gsea_pathway_gene_table(rv$gsea, top_pathway, TRUE), file.path(out_dir, "GSEA_top_pathway_leading_edge.csv")),
+          run_all_write_csv(gsea_pathway_gene_table(rv$gsea, top_pathway, FALSE), file.path(out_dir, "GSEA_top_pathway_genes.csv"))
+        )
+        curve <- make_gsea_enrichment_plot(rv$gsea, top_pathway, input$plot_theme %||% "classic", input$plot_font_family %||% "serif")
+        volcano <- make_gsea_pathway_volcano(rv$gsea, top_pathway, input$alpha, input$lfc_cutoff,
+          input$color_up %||% "#B2182B", input$color_down %||% "#2166AC", input$color_ns %||% "#B3B3B3",
+          input$plot_point_size, input$plot_alpha, input$plot_theme %||% "classic", input$plot_font_family %||% "serif")
+        c(files,
+          run_all_save_plot(curve, run_all_plot_file(out_dir, "GSEA_top_pathway_curve", img_fmt), input$gsea_plot_width, input$gsea_plot_height),
+          run_all_save_plot(volcano, run_all_plot_file(out_dir, "GSEA_top_pathway_volcano", img_fmt), input$gsea_plot_width, input$gsea_plot_height)
+        )
       }),
       go_offspring = list(label = "GO offspring summary", run = function(out_dir) {
         req(rv$de)
@@ -6554,6 +6666,166 @@ server <- function(input, output, session) {
       req(rv$gene_family_enrichment)
       write.csv(rv$gene_family_enrichment, file, row.names = FALSE)
     }
+  )
+
+  output$gsea_ranking_ui <- renderUI({
+    d <- rv$de
+    has_stat <- !is.null(d) && !is.null(first_existing_col(d, c("stat", "Statistic", "waldStatistic", "WaldStatistic")))
+    has_p <- !is.null(d) && !is.null(first_existing_col(d, c("pValue", "pvalue", "PValue", "P.Value")))
+    choices <- character()
+    if (has_stat) choices <- c(choices, "DESeq2 statistic (recommended)" = "stat")
+    if (has_p) choices <- c(choices, "Signed -log10(p-value)" = "signed_p")
+    choices <- c(choices, "log2FoldChange" = "log2fc")
+    selected <- if (has_stat) "stat" else if (has_p) "signed_p" else "log2fc"
+    selectInput("gsea_ranking", "Ranking", choices = choices, selected = selected)
+  })
+
+  output$gsea_database_ui <- renderUI({
+    choices <- c(
+      "GO Biological Process" = "go_bp",
+      "KEGG" = "kegg",
+      "Hallmark" = "hallmark",
+      "PMN" = "pmn"
+    )
+    if (identical(suppressWarnings(as.integer(rv$selected_tax_id)), 3702L)) {
+      choices <- c(choices, "TEG superfamilies (Arabidopsis)" = "te_superfamily")
+    }
+    choices <- c(choices, "Custom GMT" = "gmt")
+    selected <- input$gsea_database %||% "go_bp"
+    if (!selected %in% unname(choices)) selected <- "go_bp"
+    radioButtons("gsea_database", "Database", choices = choices, selected = selected)
+  })
+
+  output$gsea_database_status_ui <- renderUI({
+    db <- input$gsea_database %||% "go_bp"
+    msg <- switch(db,
+      go_bp = paste("Uses", input$go_orgdb %||% "the selected OrgDb", "with", input$go_keytype %||% "the selected Gene ID type"),
+      kegg = paste("Uses KEGG organism code", input$kegg_species %||% ""),
+      hallmark = paste("Uses MSigDB species", input$msigdb_species %||% rv$selected_organism_label),
+      pmn = paste("Uses PMN database", input$pmn_cyc_db %||% ""),
+      te_superfamily = "Uses Arabidopsis transposable-element genes grouped by TAIR10 TE superfamily.",
+      gmt = "GMT genes must use the same identifiers as the loaded DE table."
+    )
+    padj_values <- if (!is.null(rv$de) && "padj" %in% names(rv$de)) suppressWarnings(as.numeric(rv$de$padj)) else numeric()
+    padj_values <- padj_values[is.finite(padj_values)]
+    likely_filtered <- length(padj_values) >= 10 && all(padj_values <= 0.05)
+    tagList(
+      div(class = "muted", style = "margin-bottom: 8px;", msg),
+      if (likely_filtered) div(class = "alert alert-warning", style = "padding: 8px; margin-bottom: 8px;",
+        "All loaded rows have padj <= 0.05. Confirm that the file contains all tested genes, not only significant genes; a filtered list is not valid for GSEA.")
+    )
+  })
+
+  observeEvent(list(input$gsea_database, input$gsea_ranking, input$gsea_min_size,
+                    rv$selected_tax_id,
+                    input$gsea_max_size, input$gsea_gmt_file), {
+    rv$gsea <- NULL
+  }, ignoreInit = TRUE)
+
+  observeEvent(input$run_gsea, {
+    req(rv$de, input$gsea_ranking)
+    min_size <- as.integer(input$gsea_min_size %||% 15)
+    max_size <- as.integer(input$gsea_max_size %||% 500)
+    validate(need(min_size >= 2, "Minimum gene-set size must be at least 2."))
+    validate(need(max_size >= min_size, "Maximum gene-set size must be at least the minimum size."))
+    db <- input$gsea_database %||% "go_bp"
+    if (identical(db, "gmt")) req(input$gsea_gmt_file$datapath)
+    if (identical(db, "te_superfamily")) {
+      validate(need(identical(suppressWarnings(as.integer(rv$selected_tax_id)), 3702L),
+        "TEG-superfamily GSEA is available only for Arabidopsis thaliana."))
+    }
+    append_log("Running GSEA:", db, "using", input$gsea_ranking, level = "STEP")
+    withProgress(message = "Running Gene Set Enrichment Analysis", value = 0.15, {
+      tryCatch({
+        incProgress(0.25, detail = "Loading and mapping gene sets")
+        res <- run_fgsea_analysis(
+          rv$de, database = db, ranking = input$gsea_ranking,
+          min_size = min_size, max_size = max_size,
+          orgdb = input$go_orgdb %||% NULL,
+          keytype = input$go_keytype %||% NULL,
+          kegg_species = input$kegg_species %||% "ath",
+          msigdb_species = input$msigdb_species %||% rv$selected_organism_label,
+          pmn_cyc_db = input$pmn_cyc_db %||% "AraCyc",
+          gmt_file = if (identical(db, "gmt")) input$gsea_gmt_file$datapath else NULL
+        )
+        incProgress(0.65, detail = "Preparing GSEA results")
+        rv$gsea <- res
+        append_log("GSEA completed:", nrow(res$results), "gene sets tested using", length(res$ranks), "ranked genes.")
+      }, error = function(e) {
+        rv$gsea <- NULL
+        showNotification(paste("GSEA error:", e$message), type = "error", duration = 15)
+        append_log("GSEA error:", e$message)
+      })
+    })
+  })
+
+  output$gsea_pathway_selector_ui <- renderUI({
+    if (is.null(rv$gsea) || !nrow(rv$gsea$results)) return(div(class = "muted", "Run GSEA to select a pathway."))
+    d <- rv$gsea$results
+    labels <- paste0(d$Term, " | NES ", format(round(d$NES, 2), nsmall = 2), " | FDR ", format(d$padj, digits = 3))
+    choices <- stats::setNames(as.character(d$pathway), labels)
+    selectizeInput("gsea_pathway", "Selected GSEA pathway", choices = choices, selected = as.character(d$pathway[1]),
+                   options = list(placeholder = "Select a pathway"))
+  })
+
+  gsea_nes_plot_reactive <- reactive({
+    req(rv$gsea)
+    make_gsea_nes_plot(rv$gsea, input$gsea_fdr_cutoff %||% 0.05, input$gsea_top_n %||% 20,
+      color_up = input$color_up %||% "#B2182B", color_down = input$color_down %||% "#2166AC",
+      plot_theme = input$plot_theme %||% "classic", font_family = input$plot_font_family %||% "serif")
+  })
+
+  gsea_enrichment_plot_reactive <- reactive({
+    req(rv$gsea, input$gsea_pathway)
+    make_gsea_enrichment_plot(rv$gsea, input$gsea_pathway,
+      plot_theme = input$plot_theme %||% "classic", font_family = input$plot_font_family %||% "serif")
+  })
+
+  gsea_pathway_volcano_reactive <- reactive({
+    req(rv$gsea, input$gsea_pathway)
+    make_gsea_pathway_volcano(rv$gsea, input$gsea_pathway, input$alpha, input$lfc_cutoff,
+      color_up = input$color_up %||% "#B2182B", color_down = input$color_down %||% "#2166AC", color_ns = input$color_ns %||% "#B3B3B3",
+      point_size = input$plot_point_size, point_alpha = input$plot_alpha,
+      plot_theme = input$plot_theme %||% "classic", font_family = input$plot_font_family %||% "serif")
+  })
+
+  output$gsea_nes_plot <- renderPlot({
+    tryCatch(gsea_nes_plot_reactive(), error = function(e) { plot.new(); text(0.5, 0.5, e$message, cex = 1.05) })
+  }, width = function() input$gsea_plot_width, height = function() input$gsea_plot_height)
+  output$gsea_enrichment_plot <- renderPlot({
+    tryCatch(gsea_enrichment_plot_reactive(), error = function(e) { plot.new(); text(0.5, 0.5, e$message, cex = 1.05) })
+  }, width = function() input$gsea_plot_width, height = function() input$gsea_plot_height)
+  output$gsea_pathway_volcano <- renderPlot({
+    tryCatch(gsea_pathway_volcano_reactive(), error = function(e) { plot.new(); text(0.5, 0.5, e$message, cex = 1.05) })
+  }, width = function() input$gsea_plot_width, height = function() input$gsea_plot_height)
+
+  output$gsea_results_table <- renderDT({
+    req(rv$gsea)
+    datatable(gsea_results_for_display(rv$gsea), rownames = FALSE, filter = "top", options = list(pageLength = 15, scrollX = TRUE))
+  })
+  output$gsea_leading_edge_table <- renderDT({
+    req(rv$gsea, input$gsea_pathway)
+    datatable(gsea_pathway_gene_table(rv$gsea, input$gsea_pathway, leading_only = TRUE), rownames = FALSE, filter = "top", options = list(pageLength = 15, scrollX = TRUE))
+  })
+  output$gsea_pathway_gene_table <- renderDT({
+    req(rv$gsea, input$gsea_pathway)
+    datatable(gsea_pathway_gene_table(rv$gsea, input$gsea_pathway, leading_only = FALSE), rownames = FALSE, filter = "top", options = list(pageLength = 15, scrollX = TRUE))
+  })
+
+  output$download_gsea_nes <- download_plot_server(gsea_nes_plot_reactive, reactive(input$format_gsea_nes), "GSEA_NES", reactive(input$gsea_plot_width), reactive(input$gsea_plot_height))
+  output$download_gsea_enrichment <- download_plot_server(gsea_enrichment_plot_reactive, reactive(input$format_gsea_enrichment), "GSEA_enrichment_curve", reactive(input$gsea_plot_width), reactive(input$gsea_plot_height))
+  output$download_gsea_pathway_volcano <- download_plot_server(gsea_pathway_volcano_reactive, reactive(input$format_gsea_pathway_volcano), "GSEA_pathway_volcano", reactive(input$gsea_plot_width), reactive(input$gsea_plot_height))
+  output$download_gsea_results <- downloadHandler(
+    filename = function() paste0("GSEA_", safe_filename_part(rv$gsea$database %||% "results"), "_", Sys.Date(), ".csv"),
+    content = function(file) { req(rv$gsea); write.csv(gsea_results_for_display(rv$gsea), file, row.names = FALSE) }
+  )
+  output$download_gsea_leading_edge <- downloadHandler(
+    filename = function() paste0("GSEA_leading_edge_", safe_filename_part(input$gsea_pathway %||% "pathway"), "_", Sys.Date(), ".csv"),
+    content = function(file) { req(rv$gsea, input$gsea_pathway); write.csv(gsea_pathway_gene_table(rv$gsea, input$gsea_pathway, TRUE), file, row.names = FALSE) }
+  )
+  output$download_gsea_pathway_genes <- downloadHandler(
+    filename = function() paste0("GSEA_pathway_genes_", safe_filename_part(input$gsea_pathway %||% "pathway"), "_", Sys.Date(), ".csv"),
+    content = function(file) { req(rv$gsea, input$gsea_pathway); write.csv(gsea_pathway_gene_table(rv$gsea, input$gsea_pathway, FALSE), file, row.names = FALSE) }
   )
 
   kegg_enrichment_uses_ec <- function() identical(input$kegg_enrichment_source %||% "gene", "ec")

@@ -172,6 +172,32 @@ GO display cutoff, ontology, and top-N controls appear in the sidebar only while
 - Bubble plot and enrichment table.
 - Pathview pathway maps colored by log2FoldChange. Pathview also uses the same ID mapping, so Ensembl human genes can be colored correctly after mapping.
 
+### Gene Set Enrichment (GSEA)
+
+- Preranked analysis with `fgsea::fgseaMultilevel` over **all tested genes**, without first applying a significant-gene cutoff. A DE-results upload should therefore contain the complete tested-gene table; the app warns when the loaded file appears to contain only significant rows.
+- Database choices:
+  - GO Biological Process
+  - KEGG
+  - MSigDB Hallmark
+  - PMN
+  - TEG superfamilies for Arabidopsis only
+  - uploaded custom GMT gene sets
+- GO, KEGG, Hallmark, and PMN use the organism/database and Gene ID settings selected in their corresponding tabs. Custom GMT genes must use identifiers compatible with the loaded DE table.
+- **TEG superfamilies (Arabidopsis)** is shown only when Arabidopsis thaliana (tax ID 3702) is selected. It uses the existing TAIR annotation and TAIR10 TE metadata to treat each transposable-element-gene superfamily as a separate gene set.
+- Ranking choices:
+  - DESeq2 statistic, when available (recommended)
+  - signed `-log10(pValue)`, using the `log2FoldChange` sign
+  - `log2FoldChange`
+- Minimum and maximum set-size controls exclude gene sets whose overlap with the ranked list falls outside the selected range. This can matter for small TE superfamilies.
+- Reports enrichment score (ES), normalized enrichment score (NES), p-value, adjusted p-value/FDR, pathway size, and leading-edge genes. Positive NES indicates enrichment near the top of the ranked list; negative NES indicates enrichment near the bottom.
+- Result views and downloads include:
+  - NES dotplot and complete pathway-results table
+  - enrichment curve for the selected pathway
+  - leading-edge gene table
+  - complete selected-pathway gene table
+  - selected-pathway volcano plot
+- The selected-pathway volcano contains **only genes belonging to that pathway**; genes outside the pathway are not drawn as background points. Pathway genes are classified as upregulated, downregulated, or not significant using the current adjusted-p-value and log2FC thresholds and global plot colors.
+
 ### MSigDB/Hallmark
 
 - Hallmark over-representation analysis using `msigdbr`.
@@ -205,6 +231,7 @@ GO display cutoff, ontology, and top-N controls appear in the sidebar only while
 - Arabidopsis-specific TE workflows for transposable-element genes and DE genes overlapping nearby/gene-body TEs.
 - **TEGs Enrichment Analysis**: TE superfamily enrichment for transposable-element genes.
 - **TEGs Volcano Plot**: volcano plot for selected TE superfamilies.
+- **Gene Set Enrichment (GSEA)** adds an Arabidopsis-only TEG superfamilies database. Each TAIR10 TE superfamily is treated as a gene set and tested across all ranked genes; the option is shown only when Arabidopsis (tax ID 3702) is selected.
 - **Overlapped TEs**: finds DE genes whose upstream, downstream, both-side, or gene-body ranges overlap TAIR10 TEs.
 - The Overlapped TEs tab shows:
   - overlapped-gene volcano, filterable by TE family
@@ -224,7 +251,7 @@ Human or other organism TE analysis requires a compatible TE-level annotation ta
 - Batch runner for exporting selected analyses into a timestamped `run_all_YYYYMMDD_HHMMSS` folder.
 - Select all available outputs, clear selections, or choose specific outputs by section:
   - Core outputs: DE table, DE summary, normalized counts, Volcano, MA, and PCA.
-  - Enrichment: GO enrichment, REVIGO-like GO reduction, GO offspring summary, abiotic-stress GO enrichment, KEGG enrichment, Pathview, MSigDB/Hallmark, PMN enrichment, and PMN pathway-gene lookup.
+  - Enrichment: GSEA, GO enrichment, REVIGO-like GO reduction, GO offspring summary, abiotic-stress GO enrichment, KEGG enrichment, Pathview, MSigDB/Hallmark, PMN enrichment, and PMN pathway-gene lookup.
   - TE analysis: TEG enrichment, TEG volcano, and Overlapped TEs when Arabidopsis is selected.
 - Direction selector for enrichment-style analyses: upregulated only, downregulated only, up and down, all DE genes, or up/down/all.
 - Unavailable analyses are hidden based on the selected organism and current app state.
