@@ -67,13 +67,13 @@ The app can run DESeq2 directly from several count/quantification input types:
 | Input type | Expected files | Notes |
 |------------|----------------|-------|
 | RSEM gene mode | `*.genes.results` | Default RSEM mode. Input rows are treated as gene IDs. |
-| RSEM transcript mode | `*.isoforms.results` | Check **RSEM files contain transcript/isoform IDs (not gene IDs)** and provide a two-column tx2gene table. |
+| RSEM transcript mode | `*.isoforms.results` | Pressing **Scan folder** on an isoform-only folder enables transcript/isoform mode and validates the embedded `transcript_id` and `gene_id` columns. Checking the transcript/isoform option performs the same validation without scanning samples. |
 | Salmon | `*/quant.sf` | One sample folder per `quant.sf`; requires tx2gene. |
-| Kallisto | `*/abundance.tsv` | One sample folder per `abundance.tsv`; requires tx2gene. |
+| Kallisto | `*/abundance.tsv` | One sample folder per `abundance.tsv`; requires transcript-to-gene (tx2gene). |
 | featureCounts | one uploaded TXT/TSV/CSV table | Uses columns after `gene_biotype` when present, otherwise after `Length`. |
 | Count matrix | one uploaded CSV/TSV/TXT/XLS/XLSX table | First column is gene IDs; remaining columns are raw sample counts. |
 
-The app scans sample IDs and creates editable colData. If an RSEM folder contains `*.isoforms.results` but gene mode is selected, the scan stops safely and asks you to check **RSEM files contain transcript/isoform IDs (not gene IDs)** instead of failing with a row-length error.
+Entering or selecting a quantification folder path does not start processing. For RSEM input, **Scan folder** detects the mode: an isoform-only folder checks **RSEM files contain transcript/isoform IDs (not gene IDs)** and validates its embedded mapping, while a gene-only folder leaves the option unchecked. If both file types are present, the checkbox determines which mode is scanned.
 
 colData supports CSV, TSV, TXT, XLS, and XLSX files. Text files can use comma or tab delimiters.
 
@@ -88,17 +88,18 @@ Supported column patterns:
 
 After colData is loaded, use the **Condition / group column** selector above the colData preview to choose which column defines treatment/control groups.
 
-tx2gene options support:
+transcript-to-gene (tx2gene) options support:
 
+- Validate the mapping embedded in every RSEM `*.isoforms.results` file when transcript/isoform mode is checked or when **Scan folder** detects an isoform-only folder.
 - Upload a two-column tx2gene table.
 - Build tx2gene from GTF/GFF by choosing transcript and gene ID attributes.
 - Build Arabidopsis TAIR-style tx2gene by stripping the final `.number` suffix from transcript IDs.
 - Preview and download the generated tx2gene table before using it.
-- The **Use tx2gene** action displays progress while the selected mapping is read, generated, validated, and saved for the DESeq2 import.
+- The **Review or change tx2gene mapping** dialog keeps manual sources available as optional overrides for RSEM and as required mapping sources for Salmon/Kallisto.
 
 ### Transcript / Isoform Analysis
 
-**Transcript / Isoform Analysis** is a permanent main tab immediately before **Run All**. Its title uses the normal theme color when the current input is RSEM transcript/isoform mode, Salmon, or Kallisto, and appears light gray for gene-level or uploaded-DE inputs. Analysis outputs become available only after a successful DESeq2 run from RSEM `*.isoforms.results`, Salmon, or Kallisto with a valid tx2gene mapping.
+**Transcript / Isoform Analysis** is a permanent main tab immediately before **Run All**. Its title uses the normal theme color when the current input is RSEM transcript/isoform mode, Salmon, or Kallisto, and appears light gray for gene-level or uploaded-DE inputs. Analysis outputs become available only after a successful DESeq2 run from RSEM `*.isoforms.results`, Salmon, or Kallisto with a valid tx2gene mapping. For RSEM isoform input, this mapping is normally obtained automatically from the quantification files.
 
 The same transcript quantification supports two complementary analyses:
 
@@ -120,7 +121,7 @@ The tab contains:
 
 - **Overview:** numbers of tested genes/transcripts, significant DTU genes, candidate switches, and DGE/DTU classification counts.
 - **DTU results:** downloadable gene- and transcript-level result tables.
-- **Gene viewer:** searchable gene selector, replicate-level stacked usage plot, mean isoform-usage switch plot, total normalized gene-expression plot, and transcript-usage table.
+- **Gene viewer:** searchable gene selector, replicate-level stacked usage plot, mean isoform-usage switch plot, total normalized gene-expression boxplot, and transcript-usage table.
 - **DGE vs DTU:** comparison of gene-level DESeq2 evidence with gene-level DTU evidence.
 
 A candidate **isoform switch** is defined conservatively as a gene that passes the selected DTU FDR, changes its dominant transcript between control and treatment, and has at least the selected minimum absolute change in transcript usage. DTU is broader than isoform switching, so significant DTU genes do not necessarily receive the switch label.

@@ -562,22 +562,100 @@ transcript_isoform_tab_ui <- function() {
         uiOutput("dtu_gene_selector_ui"),
         fluidRow(
           column(
-            6,
-            h4("Usage by biological replicate"),
-            plotOutput("dtu_usage_plot", width = "auto", height = "auto"),
-            download_plot_ui("dtu_usage", "Download usage plot")
+            9,
+            fluidRow(
+              column(
+                6,
+                h4("Usage by biological replicate"),
+                plotOutput("dtu_usage_plot", width = "auto", height = "auto"),
+                download_plot_ui("dtu_usage", "Download usage plot")
+              ),
+              column(
+                6,
+                h4("Mean isoform usage"),
+                plotOutput("dtu_switch_plot", width = "auto", height = "auto"),
+                download_plot_ui("dtu_switch", "Download switch plot")
+              )
+            )
           ),
           column(
-            6,
-            h4("Mean isoform usage"),
-            plotOutput("dtu_switch_plot", width = "auto", height = "auto"),
-            download_plot_ui("dtu_switch", "Download switch plot")
+            3,
+            wellPanel(
+              selectInput(
+                "dtu_isoform_color_palette",
+                "Transcript color set",
+                choices = c(
+                  "default" = "default",
+                  "Okabe-Ito" = "okabe_ito",
+                  "Set 1" = "set1",
+                  "Set 2" = "set2",
+                  "Dark 2" = "dark2",
+                  "Paired" = "paired",
+                  "Tableau" = "tableau",
+                  "Viridis" = "viridis",
+                  "Plasma" = "plasma",
+                  "Rainbow" = "rainbow",
+                  "Pastel" = "pastel"
+                ),
+                selected = "default"
+              ),
+              div(class = "muted", "The same transcript colors are used in both plots.")
+            )
           )
         ),
         tags$hr(),
-        h4("Total gene expression"),
-        plotOutput("dtu_gene_expression_plot", width = "auto", height = "auto"),
-        download_plot_ui("dtu_gene_expression", "Download gene-expression plot"),
+        fluidRow(
+          column(
+            8,
+            h4("Total gene expression"),
+            uiOutput("dtu_gene_expression_plot_ui"),
+            download_plot_ui("dtu_gene_expression", "Download gene-expression plot")
+          ),
+          column(
+            4,
+            wellPanel(
+              h4("Boxplot options"),
+              fluidRow(
+                column(
+                  6,
+                  numericInput("dtu_gene_expression_width", "Width (px)", value = 350, min = 100, max = 1600, step = 25)
+                ),
+                column(
+                  6,
+                  numericInput("dtu_gene_expression_height", "Height (px)", value = 300, min = 100, max = 1200, step = 25)
+                )
+              ),
+              sliderInput("dtu_gene_expression_point_size", "Point size", min = 0.1, max = 8, value = 3, step = 0.1),
+              sliderInput("dtu_gene_expression_point_alpha", "Point transparency", min = 0, max = 1, value = 0.88, step = 0.05),
+              fluidRow(
+                column(
+                  6,
+                  tags$label("Treatment color"),
+                  tags$input(
+                    type = "color",
+                    id = "dtu_gene_expression_color_trnt",
+                    value = "#ac783e",
+                    style = "width: 42px; height: 26px; border: none; cursor: pointer; padding: 0;",
+                    oninput = "Shiny.setInputValue('dtu_gene_expression_color_trnt', this.value, {priority: 'event'})"
+                  )
+                ),
+                column(
+                  6,
+                  tags$label("Control color"),
+                  tags$input(
+                    type = "color",
+                    id = "dtu_gene_expression_color_ctrl",
+                    value = "#505050",
+                    style = "width: 42px; height: 26px; border: none; cursor: pointer; padding: 0;",
+                    oninput = "Shiny.setInputValue('dtu_gene_expression_color_ctrl', this.value, {priority: 'event'})"
+                  )
+                )
+              ),
+              sliderInput("dtu_gene_expression_jitter_width", "Jitter width", min = 0, max = 0.5, value = 0.12, step = 0.01),
+              sliderInput("dtu_gene_expression_box_width", "Box width", min = 0.2, max = 0.95, value = 0.55, step = 0.05)
+            )
+          )
+        ),
         tags$hr(),
         h4("Transcript usage table"),
         DTOutput("dtu_gene_usage_table"),
@@ -585,9 +663,37 @@ transcript_isoform_tab_ui <- function() {
       ),
       tabPanel(
         "DGE vs DTU",
-        h4("Gene-expression change versus transcript-usage change"),
-        plotOutput("dge_dtu_plot", width = "auto", height = "auto"),
-        download_plot_ui("dge_dtu", "Download DGE vs DTU plot"),
+        fluidRow(
+          column(
+            8,
+            h4("Gene-expression change versus transcript-usage change"),
+            plotOutput("dge_dtu_plot", width = "auto", height = "auto"),
+            download_plot_ui("dge_dtu", "Download DGE vs DTU plot")
+          ),
+          column(
+            4,
+            wellPanel(
+              selectInput(
+                "dge_dtu_color_palette",
+                "Color set",
+                choices = c(
+                  "default" = "default",
+                  "Okabe-Ito" = "okabe_ito",
+                  "Set 1" = "set1",
+                  "Set 2" = "set2",
+                  "Dark 2" = "dark2",
+                  "Paired" = "paired",
+                  "Tableau" = "tableau",
+                  "Viridis" = "viridis",
+                  "Plasma" = "plasma",
+                  "Rainbow" = "rainbow",
+                  "Pastel" = "pastel"
+                ),
+                selected = "default"
+              )
+            )
+          )
+        ),
         div(class = "muted", "DGE uses the current adjusted-p-value and absolute log2FC thresholds. DTU uses the selected gene-level stageR FDR cutoff.")
       )
     )
@@ -737,7 +843,7 @@ ui <- fluidPage(
         conditionalPanel("input.data_mode == 'rsem'",
           radioButtons("deseq_input_type", "DESeq2 input",
             choices = c(
-              "📁 RSEM - *.genes.results" = "rsem",
+              "📁 RSEM - *.genes.results or *.isoforms.results" = "rsem",
               "📁 Salmon - */quant.sf" = "salmon",
               "📁 Kallisto - */abundance.tsv" = "kallisto",
               "📄 featureCounts - counts (TSV)" = "featurecounts",
@@ -1819,8 +1925,8 @@ ui <- fluidPage(
               tags$hr(),
               h4("Notes & Usage"),
               tags$ul(
-                tags$li(strong("Data input: "), "Upload DE CSV/TSV/TXT files or run DESeq2 directly from RSEM ", code("*.genes.results"), ", RSEM transcript-level ", code("*.isoforms.results"), ", Salmon ", code("quant.sf"), ", Kallisto ", code("abundance.tsv"), ", featureCounts output, or a count matrix with gene IDs in the first column and sample counts in the remaining columns. For RSEM isoform files, check ", strong("RSEM files contain transcript/isoform IDs (not gene IDs)"), " before scanning. If isoform files are detected in gene mode, the app displays a corrective warning instead of failing. CSV, TSV, and TXT uploads can use comma or tab delimiters. PCA is shown here only after running DESeq2 from count/quantification data."),
-                tags$li(strong("DESeq2 from quantification/counts: "), "Use the editable colData table to set conditions. RSEM transcript mode, Salmon, and Kallisto require a two-column tx2gene mapping. The tx2gene dialog can upload a table, build one from GTF/GFF attributes, or generate an Arabidopsis TAIR-style mapping; ", strong("Use tx2gene"), " shows progress while preparing and saving the mapping. Optional extra colData columns can be used as an adjusted effect or as a condition:effect interaction. The Data tab prints the exact model formula and contrast."),
+                tags$li(strong("Data input: "), "Upload DE CSV/TSV/TXT files or run DESeq2 directly from RSEM ", code("*.genes.results"), ", RSEM transcript-level ", code("*.isoforms.results"), ", Salmon ", code("quant.sf"), ", Kallisto ", code("abundance.tsv"), ", featureCounts output, or a count matrix with gene IDs in the first column and sample counts in the remaining columns. Entering or selecting a quantification folder path does not start processing. For RSEM, pressing Scan folder enables transcript/isoform mode for an isoform-only folder and disables it for a gene-only folder; if both file types are present, the checkbox determines the scanned mode. CSV, TSV, and TXT uploads can use comma or tab delimiters. PCA is shown here only after running DESeq2 from count/quantification data."),
+                tags$li(strong("DESeq2 from quantification/counts: "), "Use the editable colData table to set conditions. RSEM transcript/isoform validation runs only when the transcript/isoform checkbox is checked or when Scan folder detects an isoform-only folder. It validates every file and uses the embedded transcript_id and gene_id columns. The mapping dialog can review the detected mapping or replace it with an uploaded table, GTF/GFF attributes, or suffix removal. Salmon and Kallisto still require one of these external tx2gene mapping sources. Optional extra colData columns can be used as an adjusted effect or as a condition:effect interaction. The Data tab prints the exact model formula and contrast."),
                 tags$li(strong("DE results: "), "Volcano and MA plots use ", code("gene_id"), ", ", code("log2FoldChange"), ", ", code("padj"), " and optional ", code("baseMean"), ". The annotation search table is shown below the plots."),
                 tags$li(strong("Organism annotations: "), "Choose organism and Gene ID type, load a manual annotation table, or build one from UniProt. Human Ensembl IDs can be bridged through the selected OrgDb when available."),
                 tags$li(strong("DE preview: "), "The compact DE summary and preview table are shown in the Data input tab with DE and normalized-count downloads."),
@@ -1830,7 +1936,7 @@ ui <- fluidPage(
                   strong("Gene Set Enrichment (GSEA): "),
                   "Runs preranked ", code("fgseaMultilevel"), " over all tested genes, so the input must not be restricted to significant genes. Choose GO Biological Process, KEGG, Hallmark, PMN, an uploaded GMT file, or TAIR10 transposable-element genes grouped by TE superfamily when Arabidopsis (tax ID 3702) is selected. GO, KEGG, Hallmark, and PMN organism/database settings mirror their corresponding tabs. Rank by the DESeq2 statistic when available (recommended), signed ", code("-log10(pValue)"), ", or ", code("log2FoldChange"), ". Minimum and maximum set sizes control which gene sets are tested. Results include NES and FDR, an NES dotplot, enrichment curve, leading-edge genes, and a pathway-gene table. The Pathway genes volcano shows only genes in the selected pathway, without an all-gene background, and classifies them using the current adjusted-p-value and log2FC thresholds."
                 ),
-                tags$li(strong("Transcript / Isoform Analysis: "), "A permanent main tab immediately before Run All. Its title uses the normal theme color for RSEM transcript/isoform mode, Salmon, or Kallisto and is light gray for inputs without transcript-level data. After a successful transcript-level DESeq2 import with a valid tx2gene mapping, the retained transcript matrix is tested separately with DRIMSeq and stageR while the existing gene-level DGE analysis remains available. Low-count or low-usage transcripts are filtered before modeling, and genes with fewer than two remaining testable isoforms are excluded because DTU correction requires multiple transcripts per gene. Results appear only after the full synchronous run completes and include annotated gene- and transcript-level tables, within-gene usage by replicate, mean usage changes, total gene expression, DGE-versus-DTU classification, and conservative candidate isoform switches based on significant DTU, a dominant-transcript change, and the selected minimum absolute usage change. At least two biological replicates per condition are required; three or more are strongly preferred."),
+                tags$li(strong("Transcript / Isoform Analysis: "), "A permanent main tab immediately before Run All. Its title uses the normal theme color for RSEM transcript/isoform mode, Salmon, or Kallisto and is light gray for inputs without transcript-level data. After a successful transcript-level DESeq2 import with a valid tx2gene mapping, the retained transcript matrix is tested separately with DRIMSeq and stageR while the existing gene-level DGE analysis remains available. Low-count or low-usage transcripts are filtered before modeling, and genes with fewer than two remaining testable isoforms are excluded because DTU correction requires multiple transcripts per gene. Results appear only after the full synchronous run completes and include annotated gene- and transcript-level tables, within-gene usage by replicate, mean usage changes, total gene expression, DGE-versus-DTU classification, and conservative candidate isoform switches based on significant DTU, a dominant-transcript change, and the selected minimum absolute usage change. In the Gene viewer, one palette selector keeps transcript colors consistent across both isoform-usage plots, while the total gene-expression boxplot has controls for dimensions, treatment/control colors, points, jitter, and box width. The DGE vs DTU sub-tab also provides a right-side color-set selector. At least two biological replicates per condition are required; three or more are strongly preferred."),
                 tags$li(strong("PMN analysis: "), "Runs Plant Metabolic Network pathway enrichment for plant Cyc databases such as AraCyc, OryzaCyc, CornCyc, and TomatoCyc. The app auto-selects a PMN database when the selected organism is mapped; otherwise select or type a Cyc database manually."),
                 tags$li(strong("MSigDB/Hallmark: "), "Runs Hallmark over-representation analysis with ", code("msigdbr"), ". The run button appears only for species available in MSigDB."),
                 tags$li(strong("TE analysis: "), "Arabidopsis-only TE workflows use TAIR10 TE metadata and TAIR gene ranges. The TEG tabs run TE superfamily enrichment and TEG volcano plots. The Overlapped TEs tab finds DE genes with nearby or gene-body TE overlaps, shows an overlapped-gene volcano, TE family counts, and Fisher-test TE family enrichment using either all TAIR10 TEs or region-aware TEs as background."),
@@ -1957,6 +2063,10 @@ server <- function(input, output, session) {
     tx2gene_df = NULL,
     tx2gene_path = NULL,
     tx2gene_label = NULL,
+    tx2gene_source = NULL,
+    tx2gene_error = NULL,
+    rsem_embedded_tx2gene = NULL,
+    rsem_embedded_folder = NULL,
     tx2gene_gtf_attributes = NULL,
     tx2gene_gtf_status = NULL,
     uniprot_id_choices = NULL,
@@ -2239,7 +2349,7 @@ server <- function(input, output, session) {
     tx2gene
   }
 
-  save_tx2gene_mapping <- function(tx2gene, label) {
+  save_tx2gene_mapping <- function(tx2gene, label, source = "manual") {
     tx2gene <- normalize_tx2gene_mapping(tx2gene)
 
     out_path <- tempfile("tx2gene_", fileext = ".csv")
@@ -2247,6 +2357,8 @@ server <- function(input, output, session) {
     rv$tx2gene_df <- tx2gene
     rv$tx2gene_path <- out_path
     rv$tx2gene_label <- paste0(label, " (", nrow(tx2gene), " transcript mappings)")
+    rv$tx2gene_source <- source
+    rv$tx2gene_error <- NULL
     append_log("Prepared tx2gene mapping:", rv$tx2gene_label)
     invisible(tx2gene)
   }
@@ -2371,6 +2483,15 @@ server <- function(input, output, session) {
   }
 
   current_tx2gene_modal_mapping <- function(source = input$tx2gene_source %||% "upload") {
+    if (identical(source, "rsem_embedded")) {
+      req(rv$rsem_embedded_tx2gene)
+      return(list(
+        tx2gene = rv$rsem_embedded_tx2gene,
+        label = "Embedded RSEM transcript_id -> gene_id mapping",
+        filename = "rsem_embedded"
+      ))
+    }
+
     if (identical(source, "upload")) {
       req(input$tx2gene_modal_file$datapath)
       return(list(
@@ -2687,30 +2808,69 @@ server <- function(input, output, session) {
 
   output$tx2gene_status_ui <- renderUI({
     if (is.null(rv$tx2gene_path)) {
-      return(div(class = "muted", tags$em("No 'transcript-to-gene' mapping prepared yet.")))
+      if (!is.null(rv$tx2gene_error) && nzchar(rv$tx2gene_error)) {
+        return(div(
+          class = "alert alert-warning",
+          style = "padding: 8px; margin-bottom: 8px;",
+          strong("Transcript-to-gene mapping needs attention"),
+          tags$br(),
+          rv$tx2gene_error
+        ))
+      }
+      return(div(
+        class = "alert alert-warning",
+        style = "padding: 8px; margin-bottom: 8px;",
+        strong("A transcript-to-gene mapping is required."),
+        tags$br(),
+        "Set up a mapping before running DESeq2."
+      ))
     }
-    tagList(
-      div(strong("tx2gene:"), " ", rv$tx2gene_label %||% basename(rv$tx2gene_path)),
-      if (!is.null(rv$tx2gene_df)) div(class = "muted", paste("Preview:", paste(head(rv$tx2gene_df$TXNAME, 2), collapse = ", ")))
+    embedded <- identical(rv$tx2gene_source, "rsem_embedded")
+    div(
+      class = if (embedded) "alert alert-success" else "alert alert-info",
+      style = "padding: 8px; margin-bottom: 8px;",
+      strong(if (embedded) "Mapping detected in the RSEM isoform files" else "Transcript-to-gene mapping prepared"),
+      tags$br(),
+      rv$tx2gene_label %||% basename(rv$tx2gene_path),
+      if (embedded && !is.null(rv$tx2gene_df)) tags$div(
+        class = "muted",
+        paste(length(unique(rv$tx2gene_df$GENEID)), "genes; source: embedded transcript_id and gene_id columns.")
+      )
     )
   })
 
   output$tx2gene_controls_ui <- renderUI({
     deseq_input_type <- input$deseq_input_type %||% "rsem"
     if (!current_input_needs_tx2gene(deseq_input_type)) return(NULL)
+    embedded <- identical(deseq_input_type, "rsem") && identical(rv$tx2gene_source, "rsem_embedded")
     help_text <- if (identical(deseq_input_type, "rsem")) {
-      "Required when RSEM files contain transcript IDs. tximport will use txIn = TRUE and summarize with tx2gene."
+      "RSEM isoform files normally provide transcript_id and gene_id. The app checks and uses that mapping automatically; manual options remain available as overrides."
     } else {
       "Required for Salmon/Kallisto. Use an uploaded table, build from GTF/GFF, or auto-create TAIR-style by stripping final .number."
     }
     tagList(
       uiOutput("tx2gene_status_ui"),
-      actionButton("open_tx2gene_options", "transcript-to-gene mapping options", class = "btn-default"),
+      div(class = "muted", help_text),
+      actionButton(
+        "open_tx2gene_options",
+        if (embedded) "Review or change tx2gene mapping" else "Set up tx2gene mapping",
+        class = "btn-default"
+      )
     )
   })
 
   output$tx2gene_modal_body <- renderUI({
     source <- input$tx2gene_source %||% "upload"
+    if (identical(source, "rsem_embedded")) {
+      return(tagList(
+        div(
+          class = "alert alert-success",
+          style = "padding: 8px;",
+          "The mapping was read from the transcript_id and gene_id columns in the scanned RSEM isoform files."
+        ),
+        tableOutput("tx2gene_embedded_preview")
+      ))
+    }
     if (identical(source, "upload")) {
       return(tagList(
         fileInput("tx2gene_modal_file", "Upload tx2gene table", accept = c(".csv", ".tsv", ".txt")),
@@ -2755,6 +2915,19 @@ server <- function(input, output, session) {
   })
 
   observeEvent(input$open_tx2gene_options, {
+    embedded_available <- identical(input$deseq_input_type %||% "rsem", "rsem") &&
+      isTRUE(input$rsem_transcript_ids) &&
+      !is.null(rv$rsem_embedded_tx2gene)
+    source_choices <- c(
+      if (embedded_available) {
+        c("Use mapping embedded in RSEM files (recommended)" = "rsem_embedded")
+      } else {
+        character()
+      },
+      "Upload tx2gene table" = "upload",
+      "Build tx2gene from GTF/GFF" = "gtf",
+      "Remove transcript suffix (.number)" = "tair"
+    )
     showModal(modalDialog(
       title = "transcript-to-gene (tx2gene) mapping options",
 
@@ -2776,12 +2949,8 @@ server <- function(input, output, session) {
           radioButtons(
             "tx2gene_source",
             "Source",
-            choices = c(
-              "Upload tx2gene table" = "upload",
-              "Build tx2gene from GTF/GFF" = "gtf",
-              "Remove transcript suffix (.number)" = "tair"
-            ),
-            selected = "upload"
+            choices = source_choices,
+            selected = if (embedded_available) "rsem_embedded" else "upload"
           )
         ),
         column(
@@ -2794,7 +2963,7 @@ server <- function(input, output, session) {
       easyClose = TRUE,
       footer = tagList(
         downloadButton("download_tx2gene_modal_table", "Download table", class = "btn-default"),
-        actionButton("apply_tx2gene_source", "Use tx2gene", class = "btn-primary"),
+        actionButton("apply_tx2gene_source", "Use this mapping", class = "btn-primary"),
         modalButton("Close")
       )
     ))
@@ -2858,6 +3027,11 @@ server <- function(input, output, session) {
     head(current_tx2gene_modal_mapping("gtf")$tx2gene, 10)
   }, striped = TRUE, bordered = TRUE, spacing = "s", width = "100%")
 
+  output$tx2gene_embedded_preview <- renderTable({
+    req(rv$rsem_embedded_tx2gene)
+    head(rv$rsem_embedded_tx2gene, 10)
+  }, striped = TRUE, bordered = TRUE, spacing = "s", width = "100%")
+
   output$download_tx2gene_modal_table <- downloadHandler(
     filename = function() {
       mapping <- current_tx2gene_modal_mapping()
@@ -2887,6 +3061,7 @@ server <- function(input, output, session) {
 
     progress_detail <- switch(
       source,
+      rsem_embedded = "Using mapping embedded in RSEM files",
       upload = "Reading uploaded mapping table",
       gtf = "Building mapping from GTF/GFF attributes",
       tair = "Building TAIR-style mapping from transcript IDs",
@@ -2912,7 +3087,8 @@ server <- function(input, output, session) {
 
           save_tx2gene_mapping(
             mapping$tx2gene,
-            mapping$label
+            mapping$label,
+            source = source
           )
 
           setProgress(
@@ -2947,6 +3123,145 @@ server <- function(input, output, session) {
     rv$tx2gene_df <- NULL
     rv$tx2gene_path <- NULL
     rv$tx2gene_label <- NULL
+    rv$tx2gene_source <- NULL
+    rv$tx2gene_error <- NULL
+    rv$rsem_embedded_tx2gene <- NULL
+    rv$rsem_embedded_folder <- NULL
+  }, ignoreInit = TRUE)
+
+  clear_rsem_embedded_mapping <- function(error_message = NULL) {
+    rv$rsem_embedded_tx2gene <- NULL
+    rv$rsem_embedded_folder <- NULL
+    if (identical(rv$tx2gene_source, "rsem_embedded")) {
+      rv$tx2gene_df <- NULL
+      rv$tx2gene_path <- NULL
+      rv$tx2gene_label <- NULL
+      rv$tx2gene_source <- NULL
+      rv$tx2gene_error <- error_message
+    }
+    invisible(NULL)
+  }
+
+  validate_rsem_isoform_folder <- function(folder) {
+    folder <- trimws(folder %||% "")
+    if (!nzchar(folder) || !dir.exists(folder)) {
+      rv$tx2gene_error <- paste0(
+        "Choose a valid RSEM isoform-results folder before checking ",
+        "'RSEM files contain transcript/isoform IDs (not gene IDs)'."
+      )
+      showNotification(rv$tx2gene_error, type = "warning", duration = 12)
+      return(invisible(FALSE))
+    }
+
+    quant_table <- scan_tximport_quant_files(
+      folder,
+      quant_type = "rsem",
+      rsem_tx_ids = TRUE
+    )
+    if (!nrow(quant_table)) {
+      rv$tx2gene_error <- "No .isoforms.results files were found in the selected RSEM folder."
+      showNotification(rv$tx2gene_error, type = "warning", duration = 12)
+      return(invisible(FALSE))
+    }
+
+    rv$tx2gene_df <- NULL
+    rv$tx2gene_path <- NULL
+    rv$tx2gene_label <- NULL
+    rv$tx2gene_source <- NULL
+    rv$tx2gene_error <- NULL
+    rv$rsem_embedded_tx2gene <- NULL
+    rv$rsem_embedded_folder <- NULL
+
+    tryCatch({
+      embedded_tx2gene <- withProgress(
+        message = "Checking embedded RSEM mapping",
+        value = 0.1,
+        {
+          setProgress(0.25, detail = "Reading transcript_id and gene_id columns")
+          mapping <- extract_rsem_isoform_tx2gene(quant_table$file)
+          setProgress(0.85, detail = "Validating mappings across samples")
+          mapping
+        }
+      )
+
+      rv$rsem_embedded_tx2gene <- embedded_tx2gene
+      rv$rsem_embedded_folder <- normalizePath(folder, winslash = "/", mustWork = FALSE)
+      save_tx2gene_mapping(
+        embedded_tx2gene,
+        paste0(
+          "Embedded RSEM transcript_id -> gene_id mapping from ",
+          length(unique(quant_table$file)), " file",
+          if (length(unique(quant_table$file)) == 1) "" else "s"
+        ),
+        source = "rsem_embedded"
+      )
+      showNotification(
+        paste(
+          "Detected",
+          nrow(embedded_tx2gene),
+          "transcript-to-gene mappings in the RSEM isoform files."
+        ),
+        type = "message",
+        duration = 7
+      )
+      invisible(TRUE)
+    }, error = function(e) {
+      rv$rsem_embedded_tx2gene <- NULL
+      rv$rsem_embedded_folder <- NULL
+      rv$tx2gene_error <- paste0(
+        "The embedded RSEM mapping could not be used: ",
+        e$message,
+        " Choose a manual mapping below."
+      )
+      append_log("Embedded RSEM tx2gene error:", e$message)
+      showNotification(rv$tx2gene_error, type = "warning", duration = 15)
+      invisible(FALSE)
+    })
+  }
+
+  rsem_folder_mode <- function(folder) {
+    folder <- trimws(folder %||% "")
+    if (!nzchar(folder) || !dir.exists(folder)) return("none")
+
+    gene_files <- list.files(
+      folder,
+      pattern = "[.]genes[.]results$",
+      full.names = TRUE,
+      ignore.case = TRUE
+    )
+    isoform_files <- list.files(
+      folder,
+      pattern = "[.]isoforms[.]results$",
+      full.names = TRUE,
+      ignore.case = TRUE
+    )
+    has_gene_files <- length(gene_files) > 0
+    has_isoform_files <- length(isoform_files) > 0
+
+    if (has_isoform_files && !has_gene_files) return("isoform")
+    if (has_gene_files && !has_isoform_files) return("gene")
+    if (has_gene_files && has_isoform_files) return("mixed")
+    "none"
+  }
+
+  observeEvent(input$rsem_transcript_ids, {
+    quant_type <- input$deseq_input_type %||% "rsem"
+    if (!identical(quant_type, "rsem")) return()
+
+    if (isTRUE(input$rsem_transcript_ids)) {
+      current_folder <- normalizePath(
+        trimws(input$rsem_path %||% ""),
+        winslash = "/",
+        mustWork = FALSE
+      )
+      mapping_is_current <- !is.null(rv$rsem_embedded_tx2gene) &&
+        identical(rv$rsem_embedded_folder, current_folder)
+      if (!isTRUE(mapping_is_current)) {
+        validate_rsem_isoform_folder(input$rsem_path)
+      }
+    } else {
+      clear_rsem_embedded_mapping()
+    }
   }, ignoreInit = TRUE)
 
   observeEvent(input$scan_rsem, {
@@ -2954,6 +3269,39 @@ server <- function(input, output, session) {
     quant_type <- input$deseq_input_type %||% "rsem"
     append_log("Scanning", quant_type, "folder:", input$rsem_path, level = "STEP")
     rsem_tx_ids <- identical(quant_type, "rsem") && isTRUE(input$rsem_transcript_ids)
+    if (identical(quant_type, "rsem")) {
+      folder_mode <- rsem_folder_mode(input$rsem_path)
+
+      if (identical(folder_mode, "isoform")) {
+        rsem_tx_ids <- TRUE
+        updateCheckboxInput(
+          session,
+          "rsem_transcript_ids",
+          value = TRUE
+        )
+      } else if (identical(folder_mode, "gene")) {
+        rsem_tx_ids <- FALSE
+        clear_rsem_embedded_mapping()
+        updateCheckboxInput(
+          session,
+          "rsem_transcript_ids",
+          value = FALSE
+        )
+      }
+
+      if (isTRUE(rsem_tx_ids)) {
+        current_folder <- normalizePath(
+          trimws(input$rsem_path %||% ""),
+          winslash = "/",
+          mustWork = FALSE
+        )
+        mapping_is_current <- !is.null(rv$rsem_embedded_tx2gene) &&
+          identical(rv$rsem_embedded_folder, current_folder)
+        if (!isTRUE(mapping_is_current)) {
+          validate_rsem_isoform_folder(input$rsem_path)
+        }
+      }
+    }
     tbl <- scan_tximport_quant_files(input$rsem_path, quant_type = quant_type, rsem_tx_ids = rsem_tx_ids)
     if (nrow(tbl) == 0) {
       if (identical(quant_type, "rsem") && !isTRUE(rsem_tx_ids)) {
@@ -3567,23 +3915,47 @@ server <- function(input, output, session) {
 
   dtu_usage_plot_reactive <- reactive({
     req(rv$dtu_result, input$dtu_gene)
-    make_dtu_usage_plot(rv$dtu_result, input$dtu_gene,
-                        input$plot_theme %||% "classic", input$plot_font_family %||% "serif")
+    make_dtu_usage_plot(
+      rv$dtu_result,
+      input$dtu_gene,
+      plot_theme = input$plot_theme %||% "classic",
+      font_family = input$plot_font_family %||% "serif",
+      color_palette = input$dtu_isoform_color_palette %||% "default"
+    )
   })
   dtu_switch_plot_reactive <- reactive({
     req(rv$dtu_result, input$dtu_gene)
-    make_dtu_switch_plot(rv$dtu_result, input$dtu_gene,
-                         input$plot_theme %||% "classic", input$plot_font_family %||% "serif")
+    make_dtu_switch_plot(
+      rv$dtu_result,
+      input$dtu_gene,
+      plot_theme = input$plot_theme %||% "classic",
+      font_family = input$plot_font_family %||% "serif",
+      color_palette = input$dtu_isoform_color_palette %||% "default"
+    )
   })
   dtu_gene_expression_plot_reactive <- reactive({
     req(rv$dtu_result, input$dtu_gene)
-    make_dtu_gene_expression_plot(rv$dtu_result, input$dtu_gene,
-                                  input$plot_theme %||% "classic", input$plot_font_family %||% "serif")
+    make_dtu_gene_expression_plot(
+      rv$dtu_result,
+      input$dtu_gene,
+      plot_theme = input$plot_theme %||% "classic",
+      font_family = input$plot_font_family %||% "serif",
+      color_trnt = input$dtu_gene_expression_color_trnt %||% "#ac783e",
+      color_ctrl = input$dtu_gene_expression_color_ctrl %||% "#505050",
+      point_size = input$dtu_gene_expression_point_size %||% 2.4,
+      point_alpha = input$dtu_gene_expression_point_alpha %||% 0.88,
+      jitter_width = input$dtu_gene_expression_jitter_width %||% 0.12,
+      box_width = input$dtu_gene_expression_box_width %||% 0.55
+    )
   })
   dge_dtu_plot_reactive <- reactive({
     req(rv$dtu_result)
-    make_dge_dtu_plot(rv$dtu_result,
-                      input$plot_theme %||% "classic", input$plot_font_family %||% "serif")
+    make_dge_dtu_plot(
+      rv$dtu_result,
+      plot_theme = input$plot_theme %||% "classic",
+      font_family = input$plot_font_family %||% "serif",
+      color_palette = input$dge_dtu_color_palette %||% "default"
+    )
   })
 
   output$dtu_usage_plot <- renderPlot({
@@ -3596,11 +3968,18 @@ server <- function(input, output, session) {
       plot.new(); text(0.5, 0.5, e$message, cex = 1.05)
     })
   }, width = function() input$dtu_plot_width, height = function() input$dtu_plot_height)
+
+  output$dtu_gene_expression_plot_ui <- renderUI({
+    height <- input$dtu_gene_expression_height %||% 200
+    plotOutput("dtu_gene_expression_plot", width = "100%", height = paste0(height, "px"))
+  })
+
   output$dtu_gene_expression_plot <- renderPlot({
     tryCatch(dtu_gene_expression_plot_reactive(), error = function(e) {
       plot.new(); text(0.5, 0.5, e$message, cex = 1.05)
     })
-  }, width = function() input$dtu_plot_width, height = function() input$dtu_plot_height)
+  }, width = function() input$dtu_gene_expression_width %||% 250,
+     height = function() input$dtu_gene_expression_height %||% 200)
   output$dge_dtu_plot <- renderPlot({
     tryCatch(dge_dtu_plot_reactive(), error = function(e) {
       plot.new(); text(0.5, 0.5, e$message, cex = 1.05)
@@ -3641,7 +4020,8 @@ server <- function(input, output, session) {
   )
   output$download_dtu_gene_expression <- download_plot_server(
     dtu_gene_expression_plot_reactive, reactive(input$format_dtu_gene_expression), "DTU_gene_expression",
-    reactive(input$dtu_plot_width), reactive(input$dtu_plot_height)
+    reactive(input$dtu_gene_expression_width %||% 250),
+    reactive(input$dtu_gene_expression_height %||% 200)
   )
   output$download_dge_dtu <- download_plot_server(
     dge_dtu_plot_reactive, reactive(input$format_dge_dtu), "DGE_vs_DTU",
@@ -5833,6 +6213,14 @@ server <- function(input, output, session) {
       add_param("Transcript / Isoform", "Minimum samples", input$dtu_min_samples %||% 2)
       add_param("Transcript / Isoform", "DTU FDR cutoff", input$dtu_fdr %||% 0.05)
       add_param("Transcript / Isoform", "Minimum absolute usage change", input$dtu_min_delta %||% 0.1)
+      add_param("Transcript / Isoform", "Isoform plot color set", input$dtu_isoform_color_palette %||% "default")
+      add_param("Transcript / Isoform", "Gene-expression treatment color", input$dtu_gene_expression_color_trnt %||% "#ac783e")
+      add_param("Transcript / Isoform", "Gene-expression control color", input$dtu_gene_expression_color_ctrl %||% "#505050")
+      add_param("Transcript / Isoform", "Gene-expression point size", input$dtu_gene_expression_point_size %||% 2.4)
+      add_param("Transcript / Isoform", "Gene-expression point transparency", input$dtu_gene_expression_point_alpha %||% 0.88)
+      add_param("Transcript / Isoform", "Gene-expression jitter width", input$dtu_gene_expression_jitter_width %||% 0.12)
+      add_param("Transcript / Isoform", "Gene-expression box width", input$dtu_gene_expression_box_width %||% 0.55)
+      add_param("Transcript / Isoform", "DGE vs DTU color set", input$dge_dtu_color_palette %||% "default")
     }
 
     add_param("KEGG / Pathview", "KEGG organism code", input$kegg_species %||% "")
@@ -6464,24 +6852,44 @@ server <- function(input, output, session) {
           gene_id <- top$gene_id[1]
           files <- c(files,
             run_all_write_csv(dtu_gene_usage_table(rv$dtu_result, gene_id), file.path(out_dir, paste0("DTU_", run_all_safe_filename(gene_id), "_usage.csv"))),
-            run_all_save_plot(make_dtu_usage_plot(rv$dtu_result, gene_id, input$plot_theme %||% "classic", input$plot_font_family %||% "serif"),
+            run_all_save_plot(make_dtu_usage_plot(
+                                rv$dtu_result, gene_id,
+                                plot_theme = input$plot_theme %||% "classic",
+                                font_family = input$plot_font_family %||% "serif",
+                                color_palette = input$dtu_isoform_color_palette %||% "default"),
                               run_all_plot_file(out_dir, paste0("DTU_", run_all_safe_filename(gene_id), "_replicate_usage"), img_fmt),
                               input$dtu_plot_width %||% 700, input$dtu_plot_height %||% 450),
-            run_all_save_plot(make_dtu_switch_plot(rv$dtu_result, gene_id, input$plot_theme %||% "classic", input$plot_font_family %||% "serif"),
+            run_all_save_plot(make_dtu_switch_plot(
+                                rv$dtu_result, gene_id,
+                                plot_theme = input$plot_theme %||% "classic",
+                                font_family = input$plot_font_family %||% "serif",
+                                color_palette = input$dtu_isoform_color_palette %||% "default"),
                               run_all_plot_file(out_dir, paste0("DTU_", run_all_safe_filename(gene_id), "_mean_usage"), img_fmt),
                               input$dtu_plot_width %||% 700, input$dtu_plot_height %||% 450)
           )
           expression_plot <- tryCatch(make_dtu_gene_expression_plot(
-            rv$dtu_result, gene_id, input$plot_theme %||% "classic", input$plot_font_family %||% "serif"
+            rv$dtu_result, gene_id,
+            plot_theme = input$plot_theme %||% "classic",
+            font_family = input$plot_font_family %||% "serif",
+            color_trnt = input$dtu_gene_expression_color_trnt %||% "#ac783e",
+            color_ctrl = input$dtu_gene_expression_color_ctrl %||% "#505050",
+            point_size = input$dtu_gene_expression_point_size %||% 2.4,
+            point_alpha = input$dtu_gene_expression_point_alpha %||% 0.88,
+            jitter_width = input$dtu_gene_expression_jitter_width %||% 0.12,
+            box_width = input$dtu_gene_expression_box_width %||% 0.55
           ), error = function(e) NULL)
           if (!is.null(expression_plot)) {
             files <- c(files, run_all_save_plot(expression_plot,
               run_all_plot_file(out_dir, paste0("DTU_", run_all_safe_filename(gene_id), "_gene_expression"), img_fmt),
-              input$dtu_plot_width %||% 700, input$dtu_plot_height %||% 450))
+              input$dtu_gene_expression_width %||% 250,
+              input$dtu_gene_expression_height %||% 200))
           }
         }
         comparison_plot <- tryCatch(make_dge_dtu_plot(
-          rv$dtu_result, input$plot_theme %||% "classic", input$plot_font_family %||% "serif"
+          rv$dtu_result,
+          plot_theme = input$plot_theme %||% "classic",
+          font_family = input$plot_font_family %||% "serif",
+          color_palette = input$dge_dtu_color_palette %||% "default"
         ), error = function(e) NULL)
         if (!is.null(comparison_plot)) {
           files <- c(files, run_all_save_plot(comparison_plot,

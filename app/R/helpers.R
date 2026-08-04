@@ -1159,6 +1159,76 @@ read_tx2gene_table <- function(path, header = TRUE) {
   tx2gene
 }
 
+extract_rsem_isoform_tx2gene <- function(files) {
+  files <- unique(as.character(files))
+  files <- files[!is.na(files) & nzchar(files)]
+  if (!length(files)) stop("No RSEM isoform result files were provided.")
+
+  missing_files <- files[!file.exists(files)]
+  if (length(missing_files)) {
+    stop("RSEM isoform result file was not found: ", basename(missing_files[1]))
+  }
+
+  mappings <- lapply(files, function(path) {
+    tab <- utils::read.delim(
+      path,
+      header = TRUE,
+      sep = "	",
+      check.names = FALSE,
+      quote = "",
+      comment.char = "",
+      stringsAsFactors = FALSE
+    )
+    names(tab) <- sub("^﻿", "", names(tab))
+    required <- c("transcript_id", "gene_id")
+    missing <- setdiff(required, names(tab))
+    if (length(missing)) {
+      stop(
+        basename(path), " is missing required column", if (length(missing) > 1) "s: " else ": ",
+        paste(missing, collapse = ", ")
+      )
+    }
+
+    out <- data.frame(
+      TXNAME = trimws(as.character(tab$transcript_id)),
+      GENEID = trimws(as.character(tab$gene_id)),
+      stringsAsFactors = FALSE
+    )
+    out <- out[
+      !is.na(out$TXNAME) & nzchar(out$TXNAME) &
+        !is.na(out$GENEID) & nzchar(out$GENEID),
+      ,
+      drop = FALSE
+    ]
+    if (!nrow(out)) {
+      stop(basename(path), " contains no usable transcript_id/gene_id mappings.")
+    }
+    out
+  })
+
+  combined <- unique(do.call(rbind, mappings))
+  genes_per_transcript <- vapply(
+    split(combined$GENEID, combined$TXNAME),
+    function(x) length(unique(x)),
+    integer(1)
+  )
+  conflicts <- names(genes_per_transcript)[genes_per_transcript > 1]
+  if (length(conflicts)) {
+    examples <- paste(head(conflicts, 5), collapse = ", ")
+    stop(
+      length(conflicts), " transcript", if (length(conflicts) == 1) " maps" else "s map",
+      " to more than one gene across the RSEM files",
+      if (nzchar(examples)) paste0(" (for example: ", examples, ")") else "",
+      ". Use a manual tx2gene mapping to resolve the conflicts."
+    )
+  }
+
+  combined <- combined[!duplicated(combined$TXNAME), , drop = FALSE]
+  rownames(combined) <- NULL
+  attr(combined, "files_checked") <- length(files)
+  combined
+}
+
 clean_featurecounts_sample_names <- function(x) {
   x <- basename(as.character(x))
   x <- sub("\\.sorted\\.bam$", "", x, ignore.case = TRUE)
@@ -2097,57 +2167,106 @@ dtu_gene_usage_table <- function(dtu_result, gene_id) {
   d[, keep, drop = FALSE]
 }
 
-make_dtu_usage_plot <- function(dtu_result, gene_id, plot_theme = "classic", font_family = "serif") {
+make_dtu_usage_plot <- function(dtu_result, gene_id, plot_theme = "classic", font_family = "serif",
+                                color_palette = "default") {
   d <- dtu_result$usage_long[dtu_result$usage_long$gene_id == gene_id, , drop = FALSE]
   if (!nrow(d)) stop("No transcript-usage data are available for the selected gene.")
+  result_levels <- dtu_result$transcript_results$transcript_id[
+    dtu_result$transcript_results$gene_id == gene_id
+  ]
+  transcript_levels <- unique(c(as.character(result_levels), as.character(d$transcript_id)))
+  transcript_levels <- transcript_levels[!is.na(transcript_levels) & nzchar(transcript_levels)]
+  d$transcript_id <- factor(as.character(d$transcript_id), levels = transcript_levels)
   d$sample_display <- factor(d$sample_label, levels = unique(d$sample_label))
-  ggplot2::ggplot(d, ggplot2::aes(sample_display, usage, fill = transcript_id)) +
+  p <- ggplot2::ggplot(d, ggplot2::aes(sample_display, usage, fill = transcript_id)) +
     ggplot2::geom_col(width = 0.75) +
     ggplot2::facet_grid(. ~ condition, scales = "free_x", space = "free_x") +
     ggplot2::scale_y_continuous(labels = function(x) paste0(round(100 * x), "%"), limits = c(0, 1)) +
     plot_theme_choice(plot_theme, base_size = 12, font_family = font_family) +
     ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 45, hjust = 1)) +
     ggplot2::labs(title = paste("Transcript usage:", gene_id), x = "Sample", y = "Within-gene usage", fill = "Transcript")
+  palette_values <- pca_palette_values(length(transcript_levels), color_palette)
+  if (!is.null(palette_values)) {
+    names(palette_values) <- transcript_levels
+    p <- p + ggplot2::scale_fill_manual(values = palette_values, drop = FALSE)
+  }
+  p
 }
 
-make_dtu_switch_plot <- function(dtu_result, gene_id, plot_theme = "classic", font_family = "serif") {
+make_dtu_switch_plot <- function(dtu_result, gene_id, plot_theme = "classic", font_family = "serif",
+                                 color_palette = "default") {
   d <- dtu_gene_usage_table(dtu_result, gene_id)
   if (!nrow(d)) stop("No DTU result is available for the selected gene.")
+  transcript_levels <- unique(as.character(d$transcript_id))
   long <- rbind(
     data.frame(transcript_id = d$transcript_id, condition = dtu_result$control, usage = d$control_usage),
     data.frame(transcript_id = d$transcript_id, condition = dtu_result$treatment, usage = d$treatment_usage)
   )
+  long$transcript_id <- factor(as.character(long$transcript_id), levels = transcript_levels)
   long$condition <- factor(long$condition, levels = c(dtu_result$control, dtu_result$treatment))
-  ggplot2::ggplot(long, ggplot2::aes(condition, usage, group = transcript_id, color = transcript_id)) +
+  p <- ggplot2::ggplot(long, ggplot2::aes(condition, usage, group = transcript_id, color = transcript_id)) +
     ggplot2::geom_line(linewidth = 0.8, alpha = 0.8) +
     ggplot2::geom_point(size = 2.5) +
     ggplot2::scale_y_continuous(labels = function(x) paste0(round(100 * x), "%"), limits = c(0, 1)) +
     plot_theme_choice(plot_theme, base_size = 12, font_family = font_family) +
     ggplot2::labs(title = paste("Mean isoform usage:", gene_id), x = NULL, y = "Mean within-gene usage", color = "Transcript")
+  palette_values <- pca_palette_values(length(transcript_levels), color_palette)
+  if (!is.null(palette_values)) {
+    names(palette_values) <- transcript_levels
+    p <- p + ggplot2::scale_color_manual(values = palette_values, drop = FALSE)
+  }
+  p
 }
 
-make_dtu_gene_expression_plot <- function(dtu_result, gene_id, plot_theme = "classic", font_family = "serif") {
+make_dtu_gene_expression_plot <- function(dtu_result, gene_id, plot_theme = "classic", font_family = "serif",
+                                          color_trnt = "#ac783e", color_ctrl = "#505050",
+                                          point_size = 2.4, point_alpha = 0.88,
+                                          jitter_width = 0.12, box_width = 0.55,
+                                          box_alpha = 0.28) {
   d <- dtu_result$gene_expression_long
   d <- d[d$gene_id == gene_id, , drop = FALSE]
   if (!nrow(d)) stop("Normalized gene-expression values are unavailable for the selected gene.")
-  ggplot2::ggplot(d, ggplot2::aes(condition, normalized_expression, fill = condition)) +
-    ggplot2::geom_boxplot(width = 0.55, alpha = 0.35, outlier.shape = NA) +
-    ggplot2::geom_jitter(width = 0.10, size = 2, alpha = 0.85) +
+  condition_levels <- c(dtu_result$control, dtu_result$treatment)
+  condition_levels <- unique(condition_levels[!is.na(condition_levels) & nzchar(condition_levels)])
+  d$condition <- factor(as.character(d$condition), levels = condition_levels)
+  cols <- c(color_ctrl, color_trnt)
+  cols <- stats::setNames(cols[seq_along(condition_levels)], condition_levels)
+  ggplot2::ggplot(d, ggplot2::aes(condition, normalized_expression)) +
+    ggplot2::geom_boxplot(width = box_width, alpha = box_alpha, outlier.shape = NA) +
+    ggplot2::geom_jitter(
+      ggplot2::aes(color = condition),
+      width = jitter_width,
+      height = 0,
+      size = point_size,
+      alpha = point_alpha
+    ) +
+    ggplot2::scale_color_manual(values = cols, guide = "none") +
     plot_theme_choice(plot_theme, base_size = 12, font_family = font_family) +
-    ggplot2::guides(fill = "none") +
     ggplot2::labs(title = paste("Total gene expression:", gene_id), x = NULL, y = "DESeq2 normalized count")
 }
 
-make_dge_dtu_plot <- function(dtu_result, plot_theme = "classic", font_family = "serif") {
+make_dge_dtu_plot <- function(dtu_result, plot_theme = "classic", font_family = "serif",
+                              color_palette = "default") {
   d <- dtu_result$gene_results
   d$dge_score <- -log10(pmax(as.numeric(d$padj), .Machine$double.xmin))
   d$dtu_score <- -log10(pmax(as.numeric(d$gene_FDR), .Machine$double.xmin))
   d <- d[is.finite(d$dge_score) & is.finite(d$dtu_score), , drop = FALSE]
   if (!nrow(d)) stop("No genes have both DGE and DTU adjusted p-values.")
+  class_levels <- c("DGE + DTU", "DGE only", "DTU only", "Neither")
+  d$Analysis_class <- factor(as.character(d$Analysis_class), levels = class_levels)
+  cols <- c(
+  "DGE + DTU" = "#7F3C8D",  # purple
+  "DGE only" = "#E69F00",  # orange
+  "DTU only" = "#009E73",  # green
+  "Neither" = "#B3B3B370"   # gray
+)
+  if (!identical(color_palette %||% "default", "default")) {
+    palette_values <- pca_palette_values(length(class_levels), color_palette)
+    if (!is.null(palette_values)) cols <- stats::setNames(palette_values, class_levels)
+  }
   ggplot2::ggplot(d, ggplot2::aes(dge_score, dtu_score, color = Analysis_class)) +
     ggplot2::geom_point(alpha = 0.7, size = 1.5) +
-    ggplot2::scale_color_manual(values = c("DGE + DTU" = "#7B3294", "DGE only" = "#B2182B",
-                                           "DTU only" = "#2166AC", "Neither" = "#B3B3B3")) +
+    ggplot2::scale_color_manual(values = cols, drop = FALSE) +
     plot_theme_choice(plot_theme, base_size = 12, font_family = font_family) +
     ggplot2::labs(title = "Differential gene expression versus transcript usage",
                   x = "-log10 DGE adjusted p-value", y = "-log10 DTU gene FDR", color = NULL)

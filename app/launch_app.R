@@ -7,4 +7,10 @@ if (!requireNamespace("shiny", quietly = TRUE)) {
   stop("Package 'shiny' is not installed. Run install_packages.R first.")
 }
 
+suppressWarnings(
+  suppressPackageStartupMessages(
+    library(shiny)
+  )
+)
+
 shiny::runApp(appDir = app_dir, launch.browser = TRUE)

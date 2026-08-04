@@ -2,8 +2,8 @@
 setlocal EnableExtensions EnableDelayedExpansion
 cd /d "%~dp0app"
 
-echo RNAseq dashboard launcher
-echo =========================
+echo RNAseq dashboard launcher (v0.9.3)
+echo ==================================
 echo.
 
 rem You can manually set RSCRIPT here if automatic detection fails, for example:
