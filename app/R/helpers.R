@@ -104,9 +104,15 @@ detect_table_delimiter <- function(path) {
   if (comma_count > tab_count) "," else "\t"
 }
 
-read_delimited_table <- function(path, delim) {
+read_delimited_table <- function(path, delim, header = TRUE) {
   if (requireNamespace("readr", quietly = TRUE)) {
-    return(readr::read_delim(path, delim = delim, show_col_types = FALSE, guess_max = 100000))
+    return(readr::read_delim(
+      path,
+      delim = delim,
+      col_names = isTRUE(header),
+      show_col_types = FALSE,
+      guess_max = 100000
+    ))
   }
   if (is_remote_path(path)) {
     con <- if (grepl("\\.gz([?#].*)?$", tolower(path))) gzcon(url(path, open = "rb")) else url(path, open = "rt")
@@ -1074,7 +1080,7 @@ normalize_coldata <- function(coldata, sample_col = NULL, condition_col = NULL, 
   if (length(extra_cols) > 0) {
     out <- cbind(out, coldata[, extra_cols, drop = FALSE])
   }
-  out$sample_id <- sub("\\.(genes|transcripts)\\.results$", "", out$sample_id)
+  out$sample_id <- sub("\\.(genes|isoforms)\\.results$", "", out$sample_id)
   out$sample_id <- basename(out$sample_id)
   out <- out[!is.na(out$sample_id) & out$sample_id != "", , drop = FALSE]
   out
@@ -1082,10 +1088,13 @@ normalize_coldata <- function(coldata, sample_col = NULL, condition_col = NULL, 
 
 scan_rsem_files <- function(folder, transcript_level = FALSE) {
   if (is.null(folder) || !dir.exists(folder)) return(data.frame())
-  suffix <- if (isTRUE(transcript_level)) "transcripts" else "genes"
+  suffix <- if (isTRUE(transcript_level)) "isoforms" else "genes"
   pattern <- paste0("\\.", suffix, "\\.results$")
   files <- list.files(folder, pattern = pattern, full.names = TRUE)
-  sample_ids <- sub("\\.(genes|transcripts)\\.results$", "", basename(files))
+
+  if (!length(files)) return(data.frame())
+
+  sample_ids <- sub("\\.(genes|isoforms)\\.results$", "", basename(files))
   data.frame(
     sample_id = sample_ids,
     condition = "condition_1",
@@ -1120,9 +1129,23 @@ scan_tximport_quant_files <- function(folder, quant_type = c("rsem", "salmon", "
   )
 }
 
-read_tx2gene_table <- function(path) {
+read_tx2gene_table <- function(path, header = TRUE) {
   if (is.null(path) || !file.exists(path)) stop("A tx2gene table is required for transcript-level quantification input.")
-  tx2gene <- read_any_table(path, source_name = path)
+  delimiter <- detect_table_delimiter(path)
+  if (is.null(delimiter)) stop("Could not detect the tx2gene table delimiter.")
+  if (requireNamespace("readr", quietly = TRUE)) {
+    tx2gene <- read_delimited_table(path, delimiter, header = header)
+  } else {
+    tx2gene <- utils::read.table(
+      path,
+      header = isTRUE(header),
+      sep = delimiter,
+      check.names = FALSE,
+      quote = intToUtf8(34),
+      comment.char = "",
+      stringsAsFactors = FALSE
+    )
+  }
   tx2gene <- as.data.frame(tx2gene, check.names = FALSE)
   if (ncol(tx2gene) < 2) stop("tx2gene table must contain at least two columns: transcript ID and gene ID.")
   tx2gene <- tx2gene[, 1:2, drop = FALSE]
@@ -1530,7 +1553,7 @@ run_deseq2_from_rsem <- function(folder, coldata, treatment, control, lfc_shrink
   if (nrow(quant_table) == 0) {
     expected_file <- switch(
       quant_type,
-      rsem = if (isTRUE(rsem_tx_ids)) ".transcripts.results" else ".genes.results",
+      rsem = if (isTRUE(rsem_tx_ids)) ".isoforms.results" else ".genes.results",
       salmon = "quant.sf",
       kallisto = "abundance.tsv"
     )
@@ -1539,7 +1562,7 @@ run_deseq2_from_rsem <- function(folder, coldata, treatment, control, lfc_shrink
 
   coldata <- normalize_coldata(coldata, sample_col = "sample_id", condition_col = "condition", label_col = "sample_label")
   if (identical(quant_type, "rsem")) {
-    coldata$sample_id <- sub("\\.(genes|transcripts)\\.results$", "", basename(coldata$sample_id))
+    coldata$sample_id <- sub("\\.(genes|isoforms)\\.results$", "", basename(coldata$sample_id))
   }
   rownames(coldata) <- coldata$sample_id
   quant_table <- quant_table[match(coldata$sample_id, quant_table$sample_id), , drop = FALSE]
@@ -1602,6 +1625,7 @@ run_deseq2_from_rsem <- function(folder, coldata, treatment, control, lfc_shrink
   files <- quant_table$file
   names(files) <- coldata$sample_id
 
+  transcript_data <- NULL
   if (identical(quant_type, "rsem")) {
     if (isTRUE(rsem_tx_ids)) {
       tx2gene <- read_tx2gene_table(tx2gene_file)
@@ -1612,6 +1636,39 @@ run_deseq2_from_rsem <- function(folder, coldata, treatment, control, lfc_shrink
   } else {
     tx2gene <- read_tx2gene_table(tx2gene_file)
     txi <- tximport::tximport(files, type = quant_type, tx2gene = tx2gene)
+  }
+  if (quant_type %in% c("salmon", "kallisto") || (identical(quant_type, "rsem") && isTRUE(rsem_tx_ids))) {
+    tx_args <- list(
+      files = files,
+      type = quant_type,
+      txOut = TRUE,
+      tx2gene = tx2gene,
+      countsFromAbundance = "dtuScaledTPM"
+    )
+    if (identical(quant_type, "rsem")) tx_args$txIn <- TRUE
+    txi_tx <- tryCatch(
+      do.call(tximport::tximport, tx_args),
+      error = function(e) {
+        tx_args$countsFromAbundance <- "scaledTPM"
+        do.call(tximport::tximport, tx_args)
+      }
+    )
+    mapped_tx <- intersect(rownames(txi_tx$counts), tx2gene$TXNAME)
+    if (length(mapped_tx) > 0) {
+      tx_map <- tx2gene[match(mapped_tx, tx2gene$TXNAME), , drop = FALSE]
+      transcript_data <- list(
+        counts = txi_tx$counts[mapped_tx, , drop = FALSE],
+        abundance = txi_tx$abundance[mapped_tx, , drop = FALSE],
+        length = txi_tx$length[mapped_tx, , drop = FALSE],
+        tx2gene = tx_map,
+        coldata = coldata,
+        treatment = treatment,
+        control = control,
+        quant_type = quant_type,
+        scaling = tx_args$countsFromAbundance,
+        use_interaction = isTRUE(use_interaction) && "de_effect" %in% names(coldata)
+      )
+    }
   }
   txi$length[txi$length == 0] <- 1
   dds <- DESeq2::DESeqDataSetFromTximport(txi, colData = coldata, design = design_formula)
@@ -1701,8 +1758,399 @@ run_deseq2_from_rsem <- function(folder, coldata, treatment, control, lfc_shrink
     ), collapse = "\n"),
     design_formula = design_label,
     contrast = contrast_label,
-    coldata = coldata
+    coldata = coldata,
+    transcript_data = transcript_data
   )
+}
+
+transcript_usage_matrices <- function(transcript_data) {
+  if (is.null(transcript_data) || is.null(transcript_data$abundance) || is.null(transcript_data$tx2gene)) {
+    stop("Transcript-level abundance and tx2gene data are required.")
+  }
+  abundance <- as.matrix(transcript_data$abundance)
+  map <- as.data.frame(transcript_data$tx2gene, stringsAsFactors = FALSE)
+  map <- map[match(rownames(abundance), map$TXNAME), , drop = FALSE]
+  keep <- !is.na(map$TXNAME) & !is.na(map$GENEID) & nzchar(map$TXNAME) & nzchar(map$GENEID)
+  abundance <- abundance[keep, , drop = FALSE]
+  map <- map[keep, , drop = FALSE]
+  usage <- matrix(0, nrow = nrow(abundance), ncol = ncol(abundance),
+                  dimnames = dimnames(abundance))
+  gene_rows <- split(seq_len(nrow(map)), map$GENEID)
+  for (idx in gene_rows) {
+    totals <- colSums(abundance[idx, , drop = FALSE], na.rm = TRUE)
+    positive <- is.finite(totals) & totals > 0
+    if (any(positive)) {
+      usage[idx, positive] <- sweep(abundance[idx, positive, drop = FALSE], 2, totals[positive], "/")
+    }
+  }
+  list(abundance = abundance, usage = usage, map = map)
+}
+
+make_dtu_usage_long <- function(transcript_data) {
+  x <- transcript_usage_matrices(transcript_data)
+  cd <- as.data.frame(transcript_data$coldata, stringsAsFactors = FALSE)
+  cd <- cd[match(colnames(x$usage), cd$sample_id), , drop = FALSE]
+  rows <- lapply(seq_len(nrow(x$usage)), function(i) {
+    data.frame(
+      gene_id = x$map$GENEID[i],
+      transcript_id = x$map$TXNAME[i],
+      sample_id = colnames(x$usage),
+      sample_label = cd$sample_label %||% cd$sample_id,
+      condition = as.character(cd$condition),
+      usage = as.numeric(x$usage[i, ]),
+      abundance = as.numeric(x$abundance[i, ]),
+      stringsAsFactors = FALSE
+    )
+  })
+  do.call(rbind, rows)
+}
+
+run_dtu_analysis <- function(transcript_data, de_df = NULL, norm_counts = NULL,
+                             min_feature_count = 10, min_feature_prop = 0.1,
+                             min_samples = 2, fdr_cutoff = 0.05,
+                             min_delta_usage = 0.1, dge_alpha = 0.05,
+                             dge_lfc_cutoff = 1, seed = 123) {
+  required <- c("DRIMSeq", "stageR")
+  missing <- required[!vapply(required, requireNamespace, logical(1), quietly = TRUE)]
+  if (length(missing)) stop("Missing required packages: ", paste(missing, collapse = ", "),
+                            ". Run install_packages.R and restart the app.")
+  if (is.null(transcript_data$counts) || is.null(transcript_data$tx2gene) || is.null(transcript_data$coldata)) {
+    stop("No retained transcript-level quantification is available.")
+  }
+  counts_mat <- as.matrix(transcript_data$counts)
+  storage.mode(counts_mat) <- "numeric"
+  counts_mat[!is.finite(counts_mat) | counts_mat < 0] <- 0
+  map <- as.data.frame(transcript_data$tx2gene, stringsAsFactors = FALSE)
+  map <- map[match(rownames(counts_mat), map$TXNAME), , drop = FALSE]
+  keep <- !is.na(map$TXNAME) & !is.na(map$GENEID) & nzchar(map$TXNAME) & nzchar(map$GENEID)
+  counts_mat <- counts_mat[keep, , drop = FALSE]
+  map <- map[keep, , drop = FALSE]
+  multi_gene <- names(which(table(map$GENEID) >= 2))
+  keep <- map$GENEID %in% multi_gene
+  counts_mat <- counts_mat[keep, , drop = FALSE]
+  map <- map[keep, , drop = FALSE]
+  if (nrow(counts_mat) < 2 || !length(multi_gene)) stop("No genes with at least two mapped transcripts are available for DTU.")
+
+  cd <- as.data.frame(transcript_data$coldata, stringsAsFactors = FALSE)
+  cd <- cd[match(colnames(counts_mat), cd$sample_id), , drop = FALSE]
+  if (any(is.na(cd$sample_id))) stop("Transcript-count columns do not match colData sample IDs.")
+  cd$condition <- factor(cd$condition)
+  control <- transcript_data$control
+  treatment <- transcript_data$treatment
+  if (!all(c(control, treatment) %in% levels(cd$condition))) stop("Treatment/control levels are missing from transcript colData.")
+  cd$condition <- stats::relevel(cd$condition, ref = control)
+  group_n <- table(cd$condition)
+  if (any(group_n[c(control, treatment)] < 2)) stop("DTU requires at least two biological replicates in each condition.")
+  min_samples <- max(1L, min(as.integer(min_samples), min(group_n[c(control, treatment)])))
+
+  count_df <- data.frame(
+    gene_id = map$GENEID,
+    feature_id = map$TXNAME,
+    counts_mat,
+    check.names = FALSE,
+    stringsAsFactors = FALSE
+  )
+  sample_df <- data.frame(sample_id = cd$sample_id, condition = cd$condition, stringsAsFactors = FALSE)
+  if ("de_effect" %in% names(cd)) sample_df$de_effect <- cd$de_effect
+  d <- DRIMSeq::dmDSdata(counts = count_df, samples = sample_df)
+  d <- DRIMSeq::dmFilter(
+    d,
+    min_samps_feature_expr = min_samples,
+    min_feature_expr = as.numeric(min_feature_count),
+    min_samps_feature_prop = min_samples,
+    min_feature_prop = as.numeric(min_feature_prop),
+    min_samps_gene_expr = min_samples,
+    min_gene_expr = as.numeric(min_feature_count)
+  )
+  
+  filtered_counts <- DRIMSeq::counts(d)
+  transcripts_per_gene <- table(filtered_counts$gene_id)
+  keep_genes <- names(transcripts_per_gene[transcripts_per_gene >= 2L])
+
+  if (!length(keep_genes)) {
+    stop("No genes with at least two transcripts remained after DTU filtering.")
+  }
+
+  d <- d[names(d) %in% keep_genes, ]
+
+  if (!nrow(DRIMSeq::counts(d))) stop("No genes passed the DTU expression and usage filters.")
+  design_formula <- if ("de_effect" %in% names(sample_df) && isTRUE(transcript_data$use_interaction)) {
+    ~ condition + de_effect + condition:de_effect
+  } else if ("de_effect" %in% names(sample_df)) {
+    ~ condition + de_effect
+  } else {
+    ~ condition
+  }
+  design <- stats::model.matrix(design_formula, data = DRIMSeq::samples(d))
+  coef_candidates <- grep("^condition", colnames(design), value = TRUE)
+  coef_candidates <- coef_candidates[!grepl(":", coef_candidates, fixed = TRUE)]
+  if (length(coef_candidates) != 1) stop("Could not identify the treatment-versus-control coefficient for DTU.")
+  set.seed(seed)
+  d <- DRIMSeq::dmPrecision(d, design = design, verbose = 0)
+  d <- DRIMSeq::dmFit(d, design = design, verbose = 0)
+  d <- DRIMSeq::dmTest(d, coef = coef_candidates[1], verbose = 0)
+  gene_res <- as.data.frame(DRIMSeq::results(d), stringsAsFactors = FALSE)
+  tx_res <- as.data.frame(DRIMSeq::results(d, level = "feature"), stringsAsFactors = FALSE)
+
+  # better safety check # gene_res <- gene_res[is.finite(gene_res$pvalue), , drop = FALSE]
+  # better safety check # tx_res <- tx_res[is.finite(tx_res$pvalue) & tx_res$gene_id %in% gene_res$gene_id, , drop = FALSE]
+  # better safety check # if (!nrow(gene_res) || !nrow(tx_res)) stop("DRIMSeq returned no finite DTU tests after filtering.")
+  gene_res <- gene_res[
+    is.finite(gene_res$pvalue),
+    ,
+    drop = FALSE
+  ]
+  
+  tx_res <- tx_res[
+    is.finite(tx_res$pvalue) &
+      tx_res$gene_id %in% gene_res$gene_id,
+    ,
+    drop = FALSE
+  ]
+  
+  # Removing non-finite transcript tests can leave some genes with only
+  # one transcript. stageR DTU correction requires at least two.
+  stage_transcript_counts <- table(tx_res$gene_id)
+  
+  stage_genes <- names(
+    stage_transcript_counts[stage_transcript_counts >= 2L]
+  )
+  
+  gene_res <- gene_res[
+    gene_res$gene_id %in% stage_genes,
+    ,
+    drop = FALSE
+  ]
+  
+  tx_res <- tx_res[
+    tx_res$gene_id %in% stage_genes,
+    ,
+    drop = FALSE
+  ]
+  
+  if (!nrow(gene_res) || !nrow(tx_res) || !length(stage_genes)) {
+    stop(
+      "No genes with at least two valid transcript tests remained for stageR."
+    )
+  }
+
+  p_screen <- stats::setNames(gene_res$pvalue, gene_res$gene_id)
+  p_confirmation <- matrix(tx_res$pvalue, ncol = 1,
+                           dimnames = list(tx_res$feature_id, "transcript"))
+  tx2gene_stage <- data.frame(
+    txID = tx_res$feature_id,
+    geneID = tx_res$gene_id,
+    stringsAsFactors = FALSE
+  )
+  stage_obj <- stageR::stageRTx(
+    pScreen = p_screen,
+    pConfirmation = p_confirmation,
+    pScreenAdjusted = FALSE,
+    tx2gene = tx2gene_stage
+  )
+  stage_obj <- stageR::stageWiseAdjustment(stage_obj, method = "dtu", alpha = fdr_cutoff)
+  stage_p <- as.data.frame(stageR::getAdjustedPValues(
+    stage_obj, onlySignificantGenes = FALSE, order = FALSE
+  ), stringsAsFactors = FALSE)
+  gene_id_col <- first_existing_col(stage_p, c("geneID", "gene_id"))
+  tx_id_col <- first_existing_col(stage_p, c("txID", "feature_id", "transcript_id"))
+  gene_fdr_col <- first_existing_col(stage_p, c("gene", "gene_FDR"))
+  tx_fdr_col <- first_existing_col(stage_p, c("transcript", "transcript_FDR"))
+  if (any(vapply(list(gene_id_col, tx_id_col, gene_fdr_col, tx_fdr_col), is.null, logical(1)))) {
+    stop("Unexpected stageR adjusted-p-value output.")
+  }
+  stage_tbl <- data.frame(
+    gene_id = as.character(stage_p[[gene_id_col]]),
+    transcript_id = as.character(stage_p[[tx_id_col]]),
+    gene_FDR = suppressWarnings(as.numeric(stage_p[[gene_fdr_col]])),
+    transcript_OFDR = suppressWarnings(as.numeric(stage_p[[tx_fdr_col]])),
+    stringsAsFactors = FALSE
+  )
+
+  usage_long <- make_dtu_usage_long(transcript_data)
+  usage_long <- usage_long[usage_long$transcript_id %in% tx_res$feature_id, , drop = FALSE]
+  mean_usage <- stats::aggregate(usage ~ gene_id + transcript_id + condition, usage_long, mean, na.rm = TRUE)
+  control_usage <- mean_usage[mean_usage$condition == control, c("gene_id", "transcript_id", "usage")]
+  treatment_usage <- mean_usage[mean_usage$condition == treatment, c("gene_id", "transcript_id", "usage")]
+  names(control_usage)[3] <- "control_usage"
+  names(treatment_usage)[3] <- "treatment_usage"
+  usage_summary <- merge(control_usage, treatment_usage, by = c("gene_id", "transcript_id"), all = TRUE)
+  usage_summary$control_usage[is.na(usage_summary$control_usage)] <- 0
+  usage_summary$treatment_usage[is.na(usage_summary$treatment_usage)] <- 0
+  usage_summary$delta_usage <- usage_summary$treatment_usage - usage_summary$control_usage
+
+  tx_out <- merge(tx_res, usage_summary,
+                  by.x = c("gene_id", "feature_id"), by.y = c("gene_id", "transcript_id"), all.x = TRUE)
+  names(tx_out)[names(tx_out) == "feature_id"] <- "transcript_id"
+  tx_out <- merge(tx_out, stage_tbl, by = c("gene_id", "transcript_id"), all.x = TRUE)
+  tx_out$DTU_transcript <- !is.na(tx_out$transcript_OFDR) & tx_out$transcript_OFDR <= fdr_cutoff
+  tx_out <- tx_out[order(tx_out$gene_FDR, tx_out$transcript_OFDR, -abs(tx_out$delta_usage), na.last = TRUE), , drop = FALSE]
+
+  gene_rows <- split(tx_out, tx_out$gene_id)
+  gene_summary <- do.call(rbind, lapply(gene_rows, function(z) {
+    control_top <- z$transcript_id[which.max(z$control_usage)]
+    treatment_top <- z$transcript_id[which.max(z$treatment_usage)]
+    gene_fdr <- z$gene_FDR[which(!is.na(z$gene_FDR))[1]]
+    if (!length(gene_fdr)) gene_fdr <- NA_real_
+    max_delta <- max(abs(z$delta_usage), na.rm = TRUE)
+    dominance_switch <- !identical(control_top, treatment_top)
+    data.frame(
+      gene_id = z$gene_id[1],
+      gene_FDR = gene_fdr,
+      max_abs_delta_usage = max_delta,
+      control_dominant_transcript = control_top,
+      treatment_dominant_transcript = treatment_top,
+      significant_transcripts = sum(z$DTU_transcript, na.rm = TRUE),
+      DTU = is.finite(gene_fdr) && gene_fdr <= fdr_cutoff,
+      isoform_switch = is.finite(gene_fdr) && gene_fdr <= fdr_cutoff &&
+        is.finite(max_delta) && max_delta >= min_delta_usage && dominance_switch,
+      stringsAsFactors = FALSE
+    )
+  }))
+  rownames(gene_summary) <- NULL
+
+  if (!is.null(de_df) && nrow(de_df)) {
+    dge <- as.data.frame(de_df, stringsAsFactors = FALSE)
+    dge$gene_key <- gene_join_key(dge$gene_id)
+    gene_summary$gene_key <- gene_join_key(gene_summary$gene_id)
+    dge <- dge[!duplicated(dge$gene_key), c("gene_key", intersect(c("log2FoldChange", "padj", "pValue", "Symbol", "Short_description"), names(dge))), drop = FALSE]
+    gene_summary <- merge(gene_summary, dge, by = "gene_key", all.x = TRUE, sort = FALSE)
+    gene_summary$gene_key <- NULL
+  }
+  gene_summary$DGE <- !is.na(gene_summary$padj) & gene_summary$padj <= dge_alpha &
+    !is.na(gene_summary$log2FoldChange) & abs(gene_summary$log2FoldChange) >= dge_lfc_cutoff
+  gene_summary$Analysis_class <- ifelse(gene_summary$DGE & gene_summary$DTU, "DGE + DTU",
+    ifelse(gene_summary$DGE, "DGE only", ifelse(gene_summary$DTU, "DTU only", "Neither")))
+  gene_summary <- gene_summary[order(gene_summary$gene_FDR, -gene_summary$max_abs_delta_usage, na.last = TRUE), , drop = FALSE]
+
+  gene_expression_long <- NULL
+  if (!is.null(norm_counts) && nrow(norm_counts)) {
+    nc <- as.data.frame(norm_counts, stringsAsFactors = FALSE)
+    hit <- match(gene_join_key(gene_summary$gene_id), gene_join_key(nc$gene_id))
+    nc <- nc[hit[!is.na(hit)], , drop = FALSE]
+    if (nrow(nc)) {
+      sample_cols <- intersect(cd$sample_id, names(nc))
+      gene_expression_long <- do.call(rbind, lapply(seq_len(nrow(nc)), function(i) {
+        data.frame(
+          gene_id = nc$gene_id[i],
+          sample_id = sample_cols,
+          sample_label = cd$sample_label[match(sample_cols, cd$sample_id)] %||% sample_cols,
+          condition = as.character(cd$condition[match(sample_cols, cd$sample_id)]),
+          normalized_expression = as.numeric(nc[i, sample_cols, drop = TRUE]),
+          stringsAsFactors = FALSE
+        )
+      }))
+    }
+  }
+
+  annotation_columns <- intersect(
+    c("Symbol", "Short_description"),
+    names(gene_summary)
+  )
+
+  gene_summary <- dplyr::relocate(
+    gene_summary,
+    dplyr::any_of(annotation_columns),
+    .after = gene_id
+  )
+
+  if (length(annotation_columns) > 0) {
+    gene_annotations <- dplyr::select(
+      gene_summary,
+      gene_id,
+      dplyr::all_of(annotation_columns)
+    )
+
+    tx_out <- dplyr::left_join(
+      tx_out,
+      gene_annotations,
+      by = "gene_id"
+    )
+
+    tx_out <- dplyr::relocate(
+      tx_out,
+      dplyr::all_of(annotation_columns),
+      .after = transcript_id
+    )
+  }
+
+  list(
+    gene_results = gene_summary,
+    transcript_results = tx_out,
+    usage_long = usage_long,
+    gene_expression_long = gene_expression_long,
+    treatment = treatment,
+    control = control,
+    fdr_cutoff = fdr_cutoff,
+    min_delta_usage = min_delta_usage,
+    filter_summary = paste(nrow(gene_summary), "genes and", nrow(tx_out), "transcripts tested"),
+    replicate_warning = if (min(group_n[c(control, treatment)]) < 3) "Fewer than three replicates are available in at least one condition." else NULL
+  )
+}
+
+dtu_gene_usage_table <- function(dtu_result, gene_id) {
+  d <- dtu_result$transcript_results
+  d <- d[d$gene_id == gene_id, , drop = FALSE]
+  if (!nrow(d)) return(data.frame())
+  keep <- intersect(c("gene_id", "transcript_id", "control_usage", "treatment_usage",
+                      "delta_usage", "pvalue", "gene_FDR", "transcript_OFDR", "DTU_transcript"), names(d))
+  d[, keep, drop = FALSE]
+}
+
+make_dtu_usage_plot <- function(dtu_result, gene_id, plot_theme = "classic", font_family = "serif") {
+  d <- dtu_result$usage_long[dtu_result$usage_long$gene_id == gene_id, , drop = FALSE]
+  if (!nrow(d)) stop("No transcript-usage data are available for the selected gene.")
+  d$sample_display <- factor(d$sample_label, levels = unique(d$sample_label))
+  ggplot2::ggplot(d, ggplot2::aes(sample_display, usage, fill = transcript_id)) +
+    ggplot2::geom_col(width = 0.75) +
+    ggplot2::facet_grid(. ~ condition, scales = "free_x", space = "free_x") +
+    ggplot2::scale_y_continuous(labels = function(x) paste0(round(100 * x), "%"), limits = c(0, 1)) +
+    plot_theme_choice(plot_theme, base_size = 12, font_family = font_family) +
+    ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 45, hjust = 1)) +
+    ggplot2::labs(title = paste("Transcript usage:", gene_id), x = "Sample", y = "Within-gene usage", fill = "Transcript")
+}
+
+make_dtu_switch_plot <- function(dtu_result, gene_id, plot_theme = "classic", font_family = "serif") {
+  d <- dtu_gene_usage_table(dtu_result, gene_id)
+  if (!nrow(d)) stop("No DTU result is available for the selected gene.")
+  long <- rbind(
+    data.frame(transcript_id = d$transcript_id, condition = dtu_result$control, usage = d$control_usage),
+    data.frame(transcript_id = d$transcript_id, condition = dtu_result$treatment, usage = d$treatment_usage)
+  )
+  long$condition <- factor(long$condition, levels = c(dtu_result$control, dtu_result$treatment))
+  ggplot2::ggplot(long, ggplot2::aes(condition, usage, group = transcript_id, color = transcript_id)) +
+    ggplot2::geom_line(linewidth = 0.8, alpha = 0.8) +
+    ggplot2::geom_point(size = 2.5) +
+    ggplot2::scale_y_continuous(labels = function(x) paste0(round(100 * x), "%"), limits = c(0, 1)) +
+    plot_theme_choice(plot_theme, base_size = 12, font_family = font_family) +
+    ggplot2::labs(title = paste("Mean isoform usage:", gene_id), x = NULL, y = "Mean within-gene usage", color = "Transcript")
+}
+
+make_dtu_gene_expression_plot <- function(dtu_result, gene_id, plot_theme = "classic", font_family = "serif") {
+  d <- dtu_result$gene_expression_long
+  d <- d[d$gene_id == gene_id, , drop = FALSE]
+  if (!nrow(d)) stop("Normalized gene-expression values are unavailable for the selected gene.")
+  ggplot2::ggplot(d, ggplot2::aes(condition, normalized_expression, fill = condition)) +
+    ggplot2::geom_boxplot(width = 0.55, alpha = 0.35, outlier.shape = NA) +
+    ggplot2::geom_jitter(width = 0.10, size = 2, alpha = 0.85) +
+    plot_theme_choice(plot_theme, base_size = 12, font_family = font_family) +
+    ggplot2::guides(fill = "none") +
+    ggplot2::labs(title = paste("Total gene expression:", gene_id), x = NULL, y = "DESeq2 normalized count")
+}
+
+make_dge_dtu_plot <- function(dtu_result, plot_theme = "classic", font_family = "serif") {
+  d <- dtu_result$gene_results
+  d$dge_score <- -log10(pmax(as.numeric(d$padj), .Machine$double.xmin))
+  d$dtu_score <- -log10(pmax(as.numeric(d$gene_FDR), .Machine$double.xmin))
+  d <- d[is.finite(d$dge_score) & is.finite(d$dtu_score), , drop = FALSE]
+  if (!nrow(d)) stop("No genes have both DGE and DTU adjusted p-values.")
+  ggplot2::ggplot(d, ggplot2::aes(dge_score, dtu_score, color = Analysis_class)) +
+    ggplot2::geom_point(alpha = 0.7, size = 1.5) +
+    ggplot2::scale_color_manual(values = c("DGE + DTU" = "#7B3294", "DGE only" = "#B2182B",
+                                           "DTU only" = "#2166AC", "Neither" = "#B3B3B3")) +
+    plot_theme_choice(plot_theme, base_size = 12, font_family = font_family) +
+    ggplot2::labs(title = "Differential gene expression versus transcript usage",
+                  x = "-log10 DGE adjusted p-value", y = "-log10 DTU gene FDR", color = NULL)
 }
 
 run_deseq2_from_featurecounts <- function(counts_file, coldata, treatment, control, lfc_shrink = FALSE, min_count = 10,

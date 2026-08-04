@@ -102,6 +102,7 @@ run_all_task_folder <- function(id, task = NULL) {
   explicit <- task$folder %||% ""
   if (nzchar(explicit)) return(run_all_safe_filename(explicit))
   if (id %in% c("de_table", "de_summary", "normalized_counts", "volcano", "ma", "pca")) return("Core_outputs")
+  if (identical(id, "dtu")) return("Transcript_Isoform")
   if (grepl("^(go_|revigo_|go_offspring$|go_stress_)", id)) return("GO")
   if (identical(id, "gsea")) return("GSEA")
   if (id %in% c("kegg", "pathview")) return("KEGG")

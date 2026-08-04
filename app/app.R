@@ -132,7 +132,7 @@ dependency_catalog <- data.frame(
     "ggplot2", "dplyr", "readr", "stringr", "tibble", "tidyr", "readxl",
     "DESeq2", "tximport", "SummarizedExperiment", "ashr", "VennDiagram",
     "topGO", "GO.db", "AnnotationDbi", "rrvgo", "ggrepel",
-    "KEGGREST", "pathview", "msigdbr", "fgsea", "biomaRt",
+    "KEGGREST", "pathview", "msigdbr", "fgsea", "DRIMSeq", "stageR", "biomaRt",
     "RColorBrewer", "pheatmap", "stringi", "data.table",
     "patchwork", "gridExtra", "futile.logger", "rmarkdown", "knitr", "Pandoc"
   ),
@@ -165,6 +165,8 @@ dependency_catalog <- data.frame(
     "Pathview pathway map generation.",
     "MSigDB/Hallmark enrichment.",
     "Preranked Gene Set Enrichment Analysis for GO, KEGG, Hallmark, PMN, and GMT gene sets.",
+    "Dirichlet-multinomial differential transcript usage testing.",
+    "Stage-wise gene screening and transcript confirmation for DTU.",
     "Optional HGNC/human gene-family ID mapping fallback.",
     "Color palettes for plots and REVIGO-like views.",
     "Heatmap support for legacy/helper workflows.",
@@ -206,6 +208,8 @@ dependency_catalog <- data.frame(
     "Pathview map generation will not work.",
     "Hallmark analysis will not work.",
     "Gene Set Enrichment Analysis will not work.",
+    "Differential transcript usage analysis will not work.",
+    "DTU stage-wise FDR control will not work.",
     "Some human gene-family mapping fallbacks will be unavailable.",
     "Some palette choices may fail.",
     "Expression and legacy/helper heatmaps may fail.",
@@ -520,6 +524,76 @@ default_msigdb_species <- if ("Arabidopsis thaliana" %in% msigdb_species_choices
 msigdb_species_select_choices <- c("Not available for selected organism" = "", msigdb_species_choices)
 pmn_database_choices <- c("Not available for selected organism" = "", pmn_catalog_choices())
 
+transcript_isoform_tab_ui <- function() {
+  tabPanel(
+    title = uiOutput("transcript_isoform_tab_title", inline = TRUE),
+    value = "Transcript / Isoform Analysis",
+    wellPanel(
+      fluidRow(
+        column(2, numericInput("dtu_min_count", "Minimum transcript count", value = 10, min = 0, step = 1)),
+        column(2, numericInput("dtu_min_prop", "Minimum transcript usage", value = 0.10, min = 0, max = 1, step = 0.01)),
+        column(2, numericInput("dtu_min_samples", "Minimum samples", value = 2, min = 1, step = 1)),
+        column(2, numericInput("dtu_fdr", "DTU FDR cutoff", value = 0.05, min = 0.001, max = 1, step = 0.01)),
+        column(2, numericInput("dtu_min_delta", "Minimum |delta usage|", value = 0.10, min = 0, max = 1, step = 0.01)),
+        column(2, br(), actionButton("run_dtu", "Run DTU analysis", class = "btn-primary", style = "width:100%;"))
+      ),
+      uiOutput("dtu_input_status_ui"),
+      div(class = "muted", "DRIMSeq tests changes in within-gene transcript proportions; stageR performs gene screening and transcript confirmation. Low-expression transcripts are filtered before testing.")
+    ),
+    tabsetPanel(
+      id = "dtu_results_tabs",
+      tabPanel(
+        "Overview",
+        uiOutput("dtu_summary_ui"),
+        DTOutput("dtu_class_summary_table")
+      ),
+      tabPanel(
+        "DTU results",
+        h4("Gene-level DTU results"),
+        DTOutput("dtu_gene_results_table"),
+        div(class = "download-row", downloadButton("download_dtu_gene_results", "Download gene results")),
+        tags$hr(),
+        h4("Transcript-level DTU results"),
+        DTOutput("dtu_transcript_results_table"),
+        div(class = "download-row", downloadButton("download_dtu_transcript_results", "Download transcript results"))
+      ),
+      tabPanel(
+        "Gene viewer",
+        uiOutput("dtu_gene_selector_ui"),
+        fluidRow(
+          column(
+            6,
+            h4("Usage by biological replicate"),
+            plotOutput("dtu_usage_plot", width = "auto", height = "auto"),
+            download_plot_ui("dtu_usage", "Download usage plot")
+          ),
+          column(
+            6,
+            h4("Mean isoform usage"),
+            plotOutput("dtu_switch_plot", width = "auto", height = "auto"),
+            download_plot_ui("dtu_switch", "Download switch plot")
+          )
+        ),
+        tags$hr(),
+        h4("Total gene expression"),
+        plotOutput("dtu_gene_expression_plot", width = "auto", height = "auto"),
+        download_plot_ui("dtu_gene_expression", "Download gene-expression plot"),
+        tags$hr(),
+        h4("Transcript usage table"),
+        DTOutput("dtu_gene_usage_table"),
+        div(class = "download-row", downloadButton("download_dtu_gene_usage", "Download selected-gene table"))
+      ),
+      tabPanel(
+        "DGE vs DTU",
+        h4("Gene-expression change versus transcript-usage change"),
+        plotOutput("dge_dtu_plot", width = "auto", height = "auto"),
+        download_plot_ui("dge_dtu", "Download DGE vs DTU plot"),
+        div(class = "muted", "DGE uses the current adjusted-p-value and absolute log2FC thresholds. DTU uses the selected gene-level stageR FDR cutoff.")
+      )
+    )
+  )
+}
+
 app_project_root <- function() {
   wd <- normalizePath(getwd(), winslash = "/", mustWork = FALSE)
   if (identical(basename(wd), "app")) {
@@ -675,7 +749,7 @@ ui <- fluidPage(
             actionButton("scan_rsem", "Scan folder", class = "btn-primary"),
             tags$hr(),
             conditionalPanel("input.deseq_input_type == 'rsem'",
-              checkboxInput("rsem_transcript_ids", "RSEM files contain transcript IDs (not gene IDs)", value = FALSE)
+              checkboxInput("rsem_transcript_ids", "RSEM files contain transcript/isoform IDs (not gene IDs)", value = FALSE)
             ),
             uiOutput("tx2gene_controls_ui")
           ),
@@ -790,6 +864,10 @@ ui <- fluidPage(
       conditionalPanel("input.tabs == 'DE results'",
         sliderInput("de_plot_width",  "Plot width (px)",  min = 200, max = 1600, value = 350, step = 50),
         sliderInput("de_plot_height", "Plot height (px)", min = 200, max = 1200, value = 200, step = 50)
+      ),
+      conditionalPanel("input.tabs == 'Transcript / Isoform Analysis'",
+        sliderInput("dtu_plot_width", "Transcript plot width (px)", min = 100, max = 1000, value = 450, step = 50),
+        sliderInput("dtu_plot_height", "Transcript plot height (px)", min = 50, max = 1000, value = 350, step = 50)
       ),
       conditionalPanel("input.tabs == 'GSEA'",
         sliderInput("gsea_plot_width",  "GSEA plot width (px)",  min = 300, max = 1600, value = 750, step = 50),
@@ -1076,7 +1154,9 @@ ui <- fluidPage(
                 )
               )
             ),
-            tabPanel("Custom groups - RA lab (At)",
+            tabPanel(
+              title = uiOutput("custom_groups_At_tab_title", inline = TRUE),
+              value = "Custom groups - RA lab (At)",
               wellPanel(
                 fluidRow(
                   column(8, uiOutput("gene_group_selector_ui")),
@@ -1318,54 +1398,6 @@ ui <- fluidPage(
           )
         ),
 
-        tabPanel("Hallmark",
-          tabsetPanel(
-            tabPanel("Enrichment Analysis",
-              wellPanel(
-                fluidRow(
-                  column(3, selectInput("msigdb_direction", "Gene set", choices = c("up", "down", "all"), selected = "up")),
-                  column(4, selectizeInput("msigdb_species", "MSigDB species", choices = msigdb_species_select_choices, selected = default_msigdb_species,
-                                           options = list(create = FALSE, placeholder = "Select an MSigDB species"))),
-                  column(2, numericInput("msigdb_min_set_size", "Min set size", value = 5, min = 1, step = 1)),
-                  column(3, br(), uiOutput("msigdb_run_ui"))
-                ),
-                div(class = "muted", "Uses MSigDB Hallmark gene sets from the msigdbr package and the Gene ID type selected in Organism annotations.")
-              ),
-              fluidRow(
-                column(12,
-                  h4("Hallmark enrichment plot"),
-                  plotOutput("msigdb_plot", width = "auto", height = "auto"),
-                  download_plot_ui("msigdb", "Download Hallmark plot"),
-                  tags$hr(),
-                  h4("Hallmark enrichment table"),
-                  DTOutput("msigdb_table"),
-                  div(class = "download-row", downloadButton("download_msigdb_table", "Download Hallmark table"))
-                )
-              )
-            ),
-            tabPanel("Hallmark genes",
-              wellPanel(
-                fluidRow(
-                  column(7, uiOutput("hallmark_gene_codes_ui")),
-                  column(2, br(), actionButton("run_hallmark_gene_lookup", "Find genes", class = "btn-primary", style = "width:100%;")),
-                  column(3, div(class = "muted", style = "margin-top: 8px;", "Uses the selected MSigDB species, Gene ID type, and current padj/log2FC thresholds."))
-                )
-              ),
-              fluidRow(
-                column(12,
-                  h4("Hallmark genes volcano plot"),
-                  plotOutput("hallmark_genes_volcano", width = "auto", height = "auto"),
-                  download_plot_ui("hallmark_genes_volcano", "Download Hallmark genes volcano"),
-                  tags$hr(),
-                  h4("Hallmark genes"),
-                  DTOutput("hallmark_genes_table"),
-                  div(class = "download-row", downloadButton("download_hallmark_genes_table", "Download Hallmark genes table"))
-                )
-              )
-            )
-          )
-        ),
-
         tabPanel("PMN (plants)",
           tabsetPanel(
             tabPanel("Enrichment Analysis",
@@ -1414,60 +1446,59 @@ ui <- fluidPage(
           )
         ),
 
-        tabPanel("GSEA",
-          wellPanel(
-            fluidRow(
-              column(4, uiOutput("gsea_database_ui")),
-              column(4, uiOutput("gsea_ranking_ui")),
-              column(4,
-                conditionalPanel("input.gsea_database == 'gmt'",
-                  fileInput("gsea_gmt_file", "Custom gene sets (GMT)", accept = c(".gmt"))
+        tabPanel(
+          title = uiOutput("hallmark_tab_title", inline = TRUE),
+          value = "Hallmark",
+          tabsetPanel(
+            tabPanel("Enrichment Analysis",
+              wellPanel(
+                fluidRow(
+                  column(3, selectInput("msigdb_direction", "Gene set", choices = c("up", "down", "all"), selected = "up")),
+                  column(4, selectizeInput("msigdb_species", "MSigDB species", choices = msigdb_species_select_choices, selected = default_msigdb_species,
+                                           options = list(create = FALSE, placeholder = "Select an MSigDB species"))),
+                  column(2, numericInput("msigdb_min_set_size", "Min set size", value = 5, min = 1, step = 1)),
+                  column(3, br(), uiOutput("msigdb_run_ui"))
+                ),
+                div(class = "muted", "Uses MSigDB Hallmark gene sets from the msigdbr package and the Gene ID type selected in Organism annotations.")
+              ),
+              fluidRow(
+                column(12,
+                  h4("Hallmark enrichment plot"),
+                  plotOutput("msigdb_plot", width = "auto", height = "auto"),
+                  download_plot_ui("msigdb", "Download Hallmark plot"),
+                  tags$hr(),
+                  h4("Hallmark enrichment table"),
+                  DTOutput("msigdb_table"),
+                  div(class = "download-row", downloadButton("download_msigdb_table", "Download Hallmark table"))
                 )
               )
             ),
-            fluidRow(
-              column(2, numericInput("gsea_min_size", "Minimum set size", value = 15, min = 2, max = 500, step = 1)),
-              column(2, numericInput("gsea_max_size", "Maximum set size", value = 500, min = 10, max = 5000, step = 10)),
-              column(2, numericInput("gsea_fdr_cutoff", "FDR cutoff", value = 0.05, min = 0, max = 1, step = 0.01)),
-              column(2, numericInput("gsea_top_n", "Top pathways", value = 20, min = 5, max = 100, step = 5)),
-              column(4, br(), actionButton("run_gsea", "Run GSEA", class = "btn-primary", style = "width:100%;"))
-            ),
-            uiOutput("gsea_database_status_ui"),
-            div(class = "muted", "Organism and database settings mirror the corresponding GO, KEGG, Hallmark, or PMN tab; manual changes in those tabs also apply here."),
-            div(class = "muted", "GSEA uses all tested genes. DESeq2 statistic is preferred; signed -log10(p) uses the raw p-value and log2FoldChange sign.")
-          ),
-          uiOutput("gsea_pathway_selector_ui"),
-          tabsetPanel(id = "gsea_results_tabs",
-            tabPanel("Results",
-              h4("Normalized enrichment scores"),
-              plotOutput("gsea_nes_plot", width = "auto", height = "auto"),
-              download_plot_ui("gsea_nes", "Download NES plot"),
-              tags$hr(),
-              DTOutput("gsea_results_table"),
-              div(class = "download-row", downloadButton("download_gsea_results", "Download GSEA results"))
-            ),
-            tabPanel("Enrichment curve",
-              h4("Selected pathway enrichment curve"),
-              plotOutput("gsea_enrichment_plot", width = "auto", height = "auto"),
-              download_plot_ui("gsea_enrichment", "Download enrichment curve")
-            ),
-            tabPanel("Leading-edge genes",
-              h4("Core genes driving the selected enrichment"),
-              DTOutput("gsea_leading_edge_table"),
-              div(class = "download-row", downloadButton("download_gsea_leading_edge", "Download leading-edge genes"))
-            ),
-            tabPanel("Pathway genes",
-              h4("Selected pathway genes on the DE volcano"),
-              plotOutput("gsea_pathway_volcano", width = "auto", height = "auto"),
-              download_plot_ui("gsea_pathway_volcano", "Download pathway volcano"),
-              tags$hr(),
-              DTOutput("gsea_pathway_gene_table"),
-              div(class = "download-row", downloadButton("download_gsea_pathway_genes", "Download pathway genes"))
+            tabPanel("Hallmark genes",
+              wellPanel(
+                fluidRow(
+                  column(7, uiOutput("hallmark_gene_codes_ui")),
+                  column(2, br(), actionButton("run_hallmark_gene_lookup", "Find genes", class = "btn-primary", style = "width:100%;")),
+                  column(3, div(class = "muted", style = "margin-top: 8px;", "Uses the selected MSigDB species, Gene ID type, and current padj/log2FC thresholds."))
+                )
+              ),
+              fluidRow(
+                column(12,
+                  h4("Hallmark genes volcano plot"),
+                  plotOutput("hallmark_genes_volcano", width = "auto", height = "auto"),
+                  download_plot_ui("hallmark_genes_volcano", "Download Hallmark genes volcano"),
+                  tags$hr(),
+                  h4("Hallmark genes"),
+                  DTOutput("hallmark_genes_table"),
+                  div(class = "download-row", downloadButton("download_hallmark_genes_table", "Download Hallmark genes table"))
+                )
+              )
             )
           )
         ),
 
-        tabPanel("TE analysis (At)",
+        tabPanel(
+          title = uiOutput("te_analysis_tab_title", inline = TRUE),
+          value = "TE analysis (At)",
           tabsetPanel(
             tabPanel("Overlapped TEs",
               wellPanel(
@@ -1624,6 +1655,61 @@ ui <- fluidPage(
           )
         ),
 
+        tabPanel("GSEA",
+          wellPanel(
+            fluidRow(
+              column(4, uiOutput("gsea_database_ui")),
+              column(4, uiOutput("gsea_ranking_ui")),
+              column(4,
+                conditionalPanel("input.gsea_database == 'gmt'",
+                  fileInput("gsea_gmt_file", "Custom gene sets (GMT)", accept = c(".gmt"))
+                )
+              )
+            ),
+            fluidRow(
+              column(2, numericInput("gsea_min_size", "Minimum set size", value = 15, min = 2, max = 500, step = 1)),
+              column(2, numericInput("gsea_max_size", "Maximum set size", value = 500, min = 10, max = 5000, step = 10)),
+              column(2, numericInput("gsea_fdr_cutoff", "FDR cutoff", value = 0.05, min = 0, max = 1, step = 0.01)),
+              column(2, numericInput("gsea_top_n", "Top pathways", value = 20, min = 5, max = 100, step = 5)),
+              column(4, br(), actionButton("run_gsea", "Run GSEA", class = "btn-primary", style = "width:100%;"))
+            ),
+            uiOutput("gsea_database_status_ui"),
+            div(class = "muted", "Organism and database settings mirror the corresponding GO, KEGG, Hallmark, or PMN tab; manual changes in those tabs also apply here."),
+            div(class = "muted", "GSEA uses all tested genes. DESeq2 statistic is preferred; signed -log10(p) uses the raw p-value and log2FoldChange sign.")
+          ),
+          uiOutput("gsea_pathway_selector_ui"),
+          tabsetPanel(id = "gsea_results_tabs",
+            tabPanel("Results",
+              h4("Normalized enrichment scores"),
+              plotOutput("gsea_nes_plot", width = "auto", height = "auto"),
+              download_plot_ui("gsea_nes", "Download NES plot"),
+              tags$hr(),
+              DTOutput("gsea_results_table"),
+              div(class = "download-row", downloadButton("download_gsea_results", "Download GSEA results"))
+            ),
+            tabPanel("Enrichment curve",
+              h4("Selected pathway enrichment curve"),
+              plotOutput("gsea_enrichment_plot", width = "auto", height = "auto"),
+              download_plot_ui("gsea_enrichment", "Download enrichment curve")
+            ),
+            tabPanel("Leading-edge genes",
+              h4("Core genes driving the selected enrichment"),
+              DTOutput("gsea_leading_edge_table"),
+              div(class = "download-row", downloadButton("download_gsea_leading_edge", "Download leading-edge genes"))
+            ),
+            tabPanel("Pathway genes",
+              h4("Selected pathway genes on the DE volcano"),
+              plotOutput("gsea_pathway_volcano", width = "auto", height = "auto"),
+              download_plot_ui("gsea_pathway_volcano", "Download pathway volcano"),
+              tags$hr(),
+              DTOutput("gsea_pathway_gene_table"),
+              div(class = "download-row", downloadButton("download_gsea_pathway_genes", "Download pathway genes"))
+            )
+          )
+        ),
+
+        transcript_isoform_tab_ui(),
+
         tabPanel("Run All",
           wellPanel(
             h4("Batch Run"),
@@ -1733,8 +1819,8 @@ ui <- fluidPage(
               tags$hr(),
               h4("Notes & Usage"),
               tags$ul(
-                tags$li(strong("Data input: "), "Upload DE CSV/TSV/TXT files or run DESeq2 directly from RSEM ", code("*.genes.results"), ", Salmon ", code("quant.sf"), ", Kallisto ", code("abundance.tsv"), ", featureCounts output, or a count matrix with gene IDs in the first column and sample counts in the remaining columns. CSV, TSV, and TXT uploads can use comma or tab delimiters. PCA is shown here only after running DESeq2 from count/quantification data."),
-                tags$li(strong("DESeq2 from quantification/counts: "), "Use the editable colData table to set conditions. Salmon and Kallisto require a two-column tx2gene table. Optional extra colData columns can be used as an adjusted effect or as a condition:effect interaction. The Data tab prints the exact model formula and contrast."),
+                tags$li(strong("Data input: "), "Upload DE CSV/TSV/TXT files or run DESeq2 directly from RSEM ", code("*.genes.results"), ", RSEM transcript-level ", code("*.isoforms.results"), ", Salmon ", code("quant.sf"), ", Kallisto ", code("abundance.tsv"), ", featureCounts output, or a count matrix with gene IDs in the first column and sample counts in the remaining columns. For RSEM isoform files, check ", strong("RSEM files contain transcript/isoform IDs (not gene IDs)"), " before scanning. If isoform files are detected in gene mode, the app displays a corrective warning instead of failing. CSV, TSV, and TXT uploads can use comma or tab delimiters. PCA is shown here only after running DESeq2 from count/quantification data."),
+                tags$li(strong("DESeq2 from quantification/counts: "), "Use the editable colData table to set conditions. RSEM transcript mode, Salmon, and Kallisto require a two-column tx2gene mapping. The tx2gene dialog can upload a table, build one from GTF/GFF attributes, or generate an Arabidopsis TAIR-style mapping; ", strong("Use tx2gene"), " shows progress while preparing and saving the mapping. Optional extra colData columns can be used as an adjusted effect or as a condition:effect interaction. The Data tab prints the exact model formula and contrast."),
                 tags$li(strong("DE results: "), "Volcano and MA plots use ", code("gene_id"), ", ", code("log2FoldChange"), ", ", code("padj"), " and optional ", code("baseMean"), ". The annotation search table is shown below the plots."),
                 tags$li(strong("Organism annotations: "), "Choose organism and Gene ID type, load a manual annotation table, or build one from UniProt. Human Ensembl IDs can be bridged through the selected OrgDb when available."),
                 tags$li(strong("DE preview: "), "The compact DE summary and preview table are shown in the Data input tab with DE and normalized-count downloads."),
@@ -1744,6 +1830,7 @@ ui <- fluidPage(
                   strong("Gene Set Enrichment (GSEA): "),
                   "Runs preranked ", code("fgseaMultilevel"), " over all tested genes, so the input must not be restricted to significant genes. Choose GO Biological Process, KEGG, Hallmark, PMN, an uploaded GMT file, or TAIR10 transposable-element genes grouped by TE superfamily when Arabidopsis (tax ID 3702) is selected. GO, KEGG, Hallmark, and PMN organism/database settings mirror their corresponding tabs. Rank by the DESeq2 statistic when available (recommended), signed ", code("-log10(pValue)"), ", or ", code("log2FoldChange"), ". Minimum and maximum set sizes control which gene sets are tested. Results include NES and FDR, an NES dotplot, enrichment curve, leading-edge genes, and a pathway-gene table. The Pathway genes volcano shows only genes in the selected pathway, without an all-gene background, and classifies them using the current adjusted-p-value and log2FC thresholds."
                 ),
+                tags$li(strong("Transcript / Isoform Analysis: "), "A permanent main tab immediately before Run All. Its title uses the normal theme color for RSEM transcript/isoform mode, Salmon, or Kallisto and is light gray for inputs without transcript-level data. After a successful transcript-level DESeq2 import with a valid tx2gene mapping, the retained transcript matrix is tested separately with DRIMSeq and stageR while the existing gene-level DGE analysis remains available. Low-count or low-usage transcripts are filtered before modeling, and genes with fewer than two remaining testable isoforms are excluded because DTU correction requires multiple transcripts per gene. Results appear only after the full synchronous run completes and include annotated gene- and transcript-level tables, within-gene usage by replicate, mean usage changes, total gene expression, DGE-versus-DTU classification, and conservative candidate isoform switches based on significant DTU, a dominant-transcript change, and the selected minimum absolute usage change. At least two biological replicates per condition are required; three or more are strongly preferred."),
                 tags$li(strong("PMN analysis: "), "Runs Plant Metabolic Network pathway enrichment for plant Cyc databases such as AraCyc, OryzaCyc, CornCyc, and TomatoCyc. The app auto-selects a PMN database when the selected organism is mapped; otherwise select or type a Cyc database manually."),
                 tags$li(strong("MSigDB/Hallmark: "), "Runs Hallmark over-representation analysis with ", code("msigdbr"), ". The run button appears only for species available in MSigDB."),
                 tags$li(strong("TE analysis: "), "Arabidopsis-only TE workflows use TAIR10 TE metadata and TAIR gene ranges. The TEG tabs run TE superfamily enrichment and TEG volcano plots. The Overlapped TEs tab finds DE genes with nearby or gene-body TE overlaps, shows an overlapped-gene volcano, TE family counts, and Fisher-test TE family enrichment using either all TAIR10 TEs or region-aware TEs as background."),
@@ -1847,6 +1934,9 @@ server <- function(input, output, session) {
     hallmark_gene_lookup = NULL,
     hallmark_genes = NULL,
     gsea = NULL,
+    transcript_data = NULL,
+    dtu_result = NULL,
+    transcript_tab_inserted = FALSE,
     kegg_enrichment = NULL,
     kegg_enrichment_source = NULL,
     kegg_enrichment_modal_data = NULL,
@@ -1889,6 +1979,68 @@ server <- function(input, output, session) {
     run_all_log = character(),
     log = character()
   )
+
+  output$custom_groups_At_tab_title <- renderUI({
+    is_arabidopsis <- identical(
+      suppressWarnings(as.integer(rv$selected_tax_id)),
+      3702L
+    )
+
+    tags$span(
+      "Custom groups - RA lab (At)",
+      style = if (is_arabidopsis) {
+        ""
+      } else {
+        "color: lightgray; font-weight: bold;"
+      }
+    )
+  })
+
+  output$hallmark_tab_title <- renderUI({
+    is_arabidopsis <- identical(
+      suppressWarnings(as.integer(rv$selected_tax_id)),
+      3702L
+    )
+
+    tags$span(
+      "Hallmark",
+      style = if (is_arabidopsis) {
+        "color: lightgray; font-weight: bold;"
+      } else {
+        ""
+      }
+    )
+  })
+
+  output$te_analysis_tab_title <- renderUI({
+    is_arabidopsis <- identical(
+      suppressWarnings(as.integer(rv$selected_tax_id)),
+      3702L
+    )
+
+    tags$span(
+      "TE analysis (At)",
+      style = if (is_arabidopsis) {
+        ""
+      } else {
+        "color: lightgray; font-weight: bold;"
+      }
+    )
+  })
+
+  output$transcript_isoform_tab_title <- renderUI({
+    is_transcript_mode <- identical(input$data_mode, "rsem") &&
+      current_input_needs_tx2gene()
+
+    tags$span(
+      "Transcript / Isoform Analysis",
+      style = if (isTRUE(is_transcript_mode)) {
+        ""
+      } else {
+        "color: lightgray; font-weight: bold;"
+      }
+    )
+  })
 
   `%||%` <- function(a, b) if (!is.null(a)) a else b
 
@@ -2139,7 +2291,10 @@ server <- function(input, output, session) {
     if (identical(source, "upload")) {
       req(input$tx2gene_modal_file$datapath)
       return(list(
-        tx2gene = normalize_tx2gene_mapping(read_tx2gene_table(input$tx2gene_modal_file$datapath)),
+        tx2gene = normalize_tx2gene_mapping(read_tx2gene_table(
+          input$tx2gene_modal_file$datapath,
+          header = isTRUE(input$tx2gene_modal_has_header)
+        )),
         label = paste("Uploaded", input$tx2gene_modal_file$name),
         filename = "uploaded"
       ))
@@ -2259,6 +2414,7 @@ server <- function(input, output, session) {
     rv$hallmark_gene_lookup <- NULL
     rv$hallmark_genes <- NULL
     rv$gsea <- NULL
+    rv$dtu_result <- NULL
     rv$kegg_enrichment <- NULL
     rv$kegg_bubble <- NULL
     rv$pmn_enrichment <- NULL
@@ -2448,7 +2604,7 @@ server <- function(input, output, session) {
 
   output$tx2gene_status_ui <- renderUI({
     if (is.null(rv$tx2gene_path)) {
-      return(div(class = "muted", "No tx2gene mapping prepared yet."))
+      return(div(class = "muted", tags$em("No 'transcript-to-gene' mapping prepared yet.")))
     }
     tagList(
       div(strong("tx2gene:"), " ", rv$tx2gene_label %||% basename(rv$tx2gene_path)),
@@ -2466,8 +2622,7 @@ server <- function(input, output, session) {
     }
     tagList(
       uiOutput("tx2gene_status_ui"),
-      actionButton("open_tx2gene_options", "tx2gene options", class = "btn-default", style = "width:100%; margin-bottom: 8px;"),
-      div(class = "muted", help_text)
+      actionButton("open_tx2gene_options", "transcript-to-gene mapping options", class = "btn-default"),
     )
   })
 
@@ -2476,7 +2631,12 @@ server <- function(input, output, session) {
     if (identical(source, "upload")) {
       return(tagList(
         fileInput("tx2gene_modal_file", "Upload tx2gene table", accept = c(".csv", ".tsv", ".txt")),
-        div(class = "muted", "First column: transcript ID. Second column: gene ID. A header row is recommended.")
+        checkboxInput(
+          "tx2gene_modal_has_header",
+          "File contains a header row",
+          value = FALSE
+        ),
+        div(class = "muted", "First column: transcript ID. Second column: gene ID.")
       ))
     }
     if (identical(source, "gtf")) {
@@ -2486,7 +2646,10 @@ server <- function(input, output, session) {
       gene_default <- intersect(c("gene_id", "gene", "gene_name", "locus_tag", "Parent"), attr_cols)
       return(tagList(
         fileInput("tx2gene_gtf_file", "Upload GTF/GFF file", accept = c(".gtf", ".gff", ".gff3", ".gtf.gz", ".gff.gz", ".gff3.gz")),
-        div(class = "muted", rv$tx2gene_gtf_status %||% "Upload a GTF/GFF file, then choose the transcript and gene ID attributes (can take a while)."),
+        div(class = "muted", rv$tx2gene_gtf_status %||% "Upload a GTF/GFF file, then choose the transcript and gene ID attributes."),
+        div(class = "muted",
+          tags$em(rv$tx2gene_gtf_status %||% "* Can take a while")
+        ),
         if (length(attr_cols) > 0) tagList(
           selectInput("tx2gene_gtf_transcript_col", "Transcript ID attribute", choices = attr_cols,
                       selected = if (length(transcript_default)) transcript_default[1] else attr_cols[1]),
@@ -2500,25 +2663,50 @@ server <- function(input, output, session) {
       ))
     }
     tagList(
-      div(class = "muted", "Creates `tx2gene` from transcript IDs in the selected quantification folder by removing the final `.number` suffix."),
-      div(class = "muted", "This is intended for Arabidopsis TAIR-style transcript IDs such as AT1G01010.1 → AT1G01010")
+      div(class = "muted", " "),
+      div(class = "muted", " "),
+      div(class = "muted", "Creates gene IDs by removing the final '.number' suffix from transcript IDs."),
+      div(class = "muted", "Use only when transcript and gene IDs share the same base identifier,"),
+      div(class = "muted", "such as TAIR-like IDs (AT1G01010.1 → AT1G01010).")
     )
   })
 
   observeEvent(input$open_tx2gene_options, {
     showModal(modalDialog(
-      title = "tx2gene options",
-      radioButtons(
-        "tx2gene_source",
-        "Source",
-        choices = c(
-          "Upload tx2gene table" = "upload",
-          "Build tx2gene from GTF/GFF" = "gtf",
-          "Arabidopsis TAIR-style: strip final .number" = "tair"
+      title = "transcript-to-gene (tx2gene) mapping options",
+
+      # better vis # radioButtons(
+      # better vis #   "tx2gene_source",
+      # better vis #   "Source",
+      # better vis #   choices = c(
+      # better vis #     "Upload tx2gene table" = "upload",
+      # better vis #     "Build tx2gene from GTF/GFF" = "gtf",
+      # better vis #     #"Arabidopsis TAIR-style: strip final `.number` to create gene id. *only if transcript and gene IDs are similar!" = "tair"
+      # better vis #     "Remove transcript suffix (.number)" = "tair"
+      # better vis #   ),
+      # better vis #   selected = "upload"
+      # better vis # ),
+      # better vis # uiOutput("tx2gene_modal_body"),
+      fluidRow(
+        column(
+          width = 5,
+          radioButtons(
+            "tx2gene_source",
+            "Source",
+            choices = c(
+              "Upload tx2gene table" = "upload",
+              "Build tx2gene from GTF/GFF" = "gtf",
+              "Remove transcript suffix (.number)" = "tair"
+            ),
+            selected = "upload"
+          )
         ),
-        selected = "upload"
+        column(
+          width = 7,
+          uiOutput("tx2gene_modal_body")
+        )
       ),
-      uiOutput("tx2gene_modal_body"),
+
       size = "l",
       easyClose = TRUE,
       footer = tagList(
@@ -2557,17 +2745,75 @@ server <- function(input, output, session) {
     }
   )
 
+  # observeEvent(input$apply_tx2gene_source, {
+  #   source <- input$tx2gene_source %||% "upload"
+  #   tryCatch({
+  #     mapping <- current_tx2gene_modal_mapping(source)
+  #     save_tx2gene_mapping(mapping$tx2gene, mapping$label)
+  #     removeModal()
+  #     showNotification(paste("Prepared", rv$tx2gene_label), type = "message", duration = 6)
+  #   }, error = function(e) {
+  #     showNotification(paste("tx2gene error:", e$message), type = "error", duration = 12)
+  #     append_log("tx2gene error:", e$message)
+  #   })
+  # }, ignoreInit = TRUE)
+
   observeEvent(input$apply_tx2gene_source, {
     source <- input$tx2gene_source %||% "upload"
-    tryCatch({
-      mapping <- current_tx2gene_modal_mapping(source)
-      save_tx2gene_mapping(mapping$tx2gene, mapping$label)
-      removeModal()
-      showNotification(paste("Prepared", rv$tx2gene_label), type = "message", duration = 6)
-    }, error = function(e) {
-      showNotification(paste("tx2gene error:", e$message), type = "error", duration = 12)
-      append_log("tx2gene error:", e$message)
-    })
+
+    progress_detail <- switch(
+      source,
+      upload = "Reading uploaded mapping table",
+      gtf = "Building mapping from GTF/GFF attributes",
+      tair = "Building TAIR-style mapping from transcript IDs",
+      "Preparing transcript-to-gene mapping"
+    )
+
+    withProgress(
+      message = "Preparing tx2gene mapping",
+      value = 0,
+      {
+        tryCatch({
+          setProgress(
+            value = 0.1,
+            detail = progress_detail
+          )
+
+          mapping <- current_tx2gene_modal_mapping(source)
+
+          setProgress(
+            value = 0.75,
+            detail = "Validating and saving mapping"
+          )
+
+          save_tx2gene_mapping(
+            mapping$tx2gene,
+            mapping$label
+          )
+
+          setProgress(
+            value = 1,
+            detail = "tx2gene mapping prepared"
+          )
+
+          removeModal()
+
+          showNotification(
+            paste("Prepared", rv$tx2gene_label),
+            type = "message",
+            duration = 6
+          )
+        }, error = function(e) {
+          showNotification(
+            paste("tx2gene error:", e$message),
+            type = "error",
+            duration = 12
+          )
+
+          append_log("tx2gene error:", e$message)
+        })
+      }
+    )
   }, ignoreInit = TRUE)
 
   observeEvent(input$deseq_input_type, {
@@ -2586,15 +2832,51 @@ server <- function(input, output, session) {
     rsem_tx_ids <- identical(quant_type, "rsem") && isTRUE(input$rsem_transcript_ids)
     tbl <- scan_tximport_quant_files(input$rsem_path, quant_type = quant_type, rsem_tx_ids = rsem_tx_ids)
     if (nrow(tbl) == 0) {
+      if (identical(quant_type, "rsem") && !isTRUE(rsem_tx_ids)) {
+        isoform_files <- list.files(
+          input$rsem_path,
+          pattern = "\\.isoforms\\.results$",
+          ignore.case = TRUE
+        )
+
+        if (length(isoform_files) > 0) {
+          message_text <- paste0(
+            "RSEM transcript/isoform files were found. ",
+            "Check 'RSEM files contain transcript/isoform IDs (not gene IDs)' ",
+            "and scan the folder again."
+          )
+
+          showNotification(
+            message_text,
+            type = "warning",
+            duration = 12
+          )
+
+          append_log(message_text)
+          return()
+        }
+      }
+
       expected_file <- switch(
         quant_type,
-        rsem = if (isTRUE(rsem_tx_ids)) ".transcripts.results" else ".genes.results",
+        rsem = if (isTRUE(rsem_tx_ids)) ".isoforms.results" else ".genes.results",
         salmon = "quant.sf",
         kallisto = "abundance.tsv",
         ".genes.results"
       )
-      showNotification(paste("No", expected_file, "files found in this folder"), type = "error")
-      append_log("No", quant_type, "quantification files found in", input$rsem_path)
+
+      showNotification(
+        paste("No", expected_file, "files found in this folder"),
+        type = "error"
+      )
+
+      append_log(
+        "No",
+        quant_type,
+        "quantification files found in",
+        input$rsem_path
+      )
+
       return()
     }
     rv$coldata_raw <- tbl[, c("sample_id", "condition", "sample_label")]
@@ -2896,6 +3178,7 @@ server <- function(input, output, session) {
       rv$de_contrast <- NULL
       rv$deseq_all_comparisons <- NULL
       rv$venn_direction_filters <- list()
+      rv$transcript_data <- NULL
       clear_analysis_results()
     }
   })
@@ -2912,6 +3195,8 @@ server <- function(input, output, session) {
       if (current_input_needs_tx2gene(deseq_input_type)) req(rv$tx2gene_path)
     }
     append_log("Running DESeq2", paste0("(", deseq_input_type, "):"), input$treatment, "vs", input$control, level = "STEP")
+    rv$transcript_data <- NULL
+    rv$dtu_result <- NULL
     withProgress(message = "Running DESeq2", value = 0.1, {
       tryCatch({
         incProgress(0.2, detail = "Subsetting to comparison samples")
@@ -2933,6 +3218,7 @@ server <- function(input, output, session) {
         rv$de_summary <- res$summary
         rv$de_design_formula <- res$design_formula
         rv$de_contrast <- res$contrast
+        rv$transcript_data <- res$transcript_data
         rv$deseq_all_comparisons <- NULL
         rv$venn_direction_filters <- list()
         clear_analysis_results()
@@ -3006,6 +3292,237 @@ server <- function(input, output, session) {
       })
     })
   })
+
+  # observe({
+  #   available <- !is.null(rv$transcript_data) &&
+  #     !is.null(rv$transcript_data$counts) &&
+  #     nrow(rv$transcript_data$counts) > 0
+  #   if (isTRUE(available) && !isTRUE(rv$transcript_tab_inserted)) {
+  #     insertTab(
+  #       inputId = "tabs",
+  #       tab = transcript_isoform_tab_ui(),
+  #       target = "DE results",
+  #       position = "after",
+  #       select = FALSE
+  #     )
+  #     rv$transcript_tab_inserted <- TRUE
+  #   } else if (!isTRUE(available) && isTRUE(rv$transcript_tab_inserted)) {
+  #     removeTab(inputId = "tabs", target = "Transcript / Isoform Analysis")
+  #     rv$transcript_tab_inserted <- FALSE
+  #     rv$dtu_result <- NULL
+  #   }
+  # })
+
+  output$dtu_input_status_ui <- renderUI({
+    req(rv$transcript_data)
+    cd <- rv$transcript_data$coldata
+    group_counts <- table(as.character(cd$condition))
+    tagList(
+      div(
+        class = "muted",
+        style = "margin-top: 8px;",
+        paste0(
+          "Input: ", toupper(rv$transcript_data$quant_type), "; ",
+          nrow(rv$transcript_data$counts), " mapped transcripts; comparison ",
+          rv$transcript_data$treatment, " vs ", rv$transcript_data$control,
+          "; replicates: ", paste(names(group_counts), as.integer(group_counts), sep = "=", collapse = ", "),
+          "."
+        )
+      ),
+      if (any(group_counts < 3)) {
+        div(class = "alert alert-warning", style = "padding: 8px; margin-top: 8px; margin-bottom: 0;",
+            "Fewer than three biological replicates are available in at least one condition. DTU can run with two, but inference is less robust.")
+      }
+    )
+  })
+
+  observeEvent(
+    list(input$dtu_min_count, input$dtu_min_prop, input$dtu_min_samples,
+         input$dtu_fdr, input$dtu_min_delta),
+    { rv$dtu_result <- NULL },
+    ignoreInit = TRUE
+  )
+
+  observeEvent(input$run_dtu, {
+    req(rv$transcript_data, rv$de)
+    append_log("Running differential transcript usage analysis", level = "STEP")
+    withProgress(message = "Running DRIMSeq and stageR", value = 0.05, {
+      tryCatch({
+        incProgress(0.15, detail = "Filtering transcript-level counts")
+        res <- run_dtu_analysis(
+          transcript_data = rv$transcript_data,
+          de_df = rv$de,
+          norm_counts = rv$norm_counts,
+          min_feature_count = input$dtu_min_count %||% 10,
+          min_feature_prop = input$dtu_min_prop %||% 0.1,
+          min_samples = input$dtu_min_samples %||% 2,
+          fdr_cutoff = input$dtu_fdr %||% 0.05,
+          min_delta_usage = input$dtu_min_delta %||% 0.1,
+          dge_alpha = input$alpha %||% 0.05,
+          dge_lfc_cutoff = input$lfc_cutoff %||% 1
+        )
+        incProgress(0.90, detail = "Preparing transcript-usage results")
+        rv$dtu_result <- res
+        append_log(
+          "DTU completed:", nrow(res$gene_results), "genes tested;",
+          sum(res$gene_results$DTU, na.rm = TRUE), "significant DTU genes;",
+          sum(res$gene_results$isoform_switch, na.rm = TRUE), "candidate isoform switches."
+        )
+      }, error = function(e) {
+        rv$dtu_result <- NULL
+        showNotification(paste("DTU error:", e$message), type = "error", duration = 15)
+        append_log("DTU error:", e$message)
+      })
+    })
+  })
+
+  output$dtu_summary_ui <- renderUI({
+    if (is.null(rv$dtu_result)) {
+      return(div(class = "muted", style = "margin: 12px 0;", "Run DTU analysis to view results."))
+    }
+    d <- rv$dtu_result
+    metric <- function(value, label) {
+      column(3, wellPanel(h3(style = "margin-top: 0;", format(value, big.mark = ",")), div(label)))
+    }
+    fluidRow(
+      metric(nrow(d$gene_results), "Genes tested"),
+      metric(nrow(d$transcript_results), "Transcripts tested"),
+      metric(sum(d$gene_results$DTU, na.rm = TRUE), "Significant DTU genes"),
+      metric(sum(d$gene_results$isoform_switch, na.rm = TRUE), "Candidate isoform switches")
+    )
+  })
+
+  output$dtu_class_summary_table <- renderDT({
+    req(rv$dtu_result)
+    tab <- as.data.frame(table(rv$dtu_result$gene_results$Analysis_class), stringsAsFactors = FALSE)
+    names(tab) <- c("Classification", "Genes")
+    datatable(tab, rownames = FALSE, options = list(dom = "t", ordering = FALSE))
+  })
+
+  output$dtu_gene_results_table <- renderDT({
+    req(rv$dtu_result)
+    tbl <- datatable(rv$dtu_result$gene_results, rownames = FALSE, filter = "top",
+                     options = list(pageLength = 15, scrollX = TRUE))
+    if ("max_abs_delta_usage" %in% names(rv$dtu_result$gene_results)) {
+      tbl <- DT::formatPercentage(tbl, "max_abs_delta_usage", digits = 1)
+    }
+    tbl
+  })
+
+  output$dtu_transcript_results_table <- renderDT({
+    req(rv$dtu_result)
+    d <- rv$dtu_result$transcript_results
+    tbl <- datatable(d, rownames = FALSE, filter = "top",
+                     options = list(pageLength = 15, scrollX = TRUE))
+    pct_cols <- intersect(c("control_usage", "treatment_usage", "delta_usage"), names(d))
+    if (length(pct_cols)) tbl <- DT::formatPercentage(tbl, pct_cols, digits = 1)
+    tbl
+  })
+
+  output$dtu_gene_selector_ui <- renderUI({
+    if (is.null(rv$dtu_result) || !nrow(rv$dtu_result$gene_results)) {
+      return(div(class = "muted", "Run DTU analysis to select a gene."))
+    }
+    d <- rv$dtu_result$gene_results
+    ord <- order(!d$isoform_switch, !d$DTU, d$gene_FDR, -d$max_abs_delta_usage, na.last = TRUE)
+    d <- d[ord, , drop = FALSE]
+    symbol <- if ("Symbol" %in% names(d)) as.character(d$Symbol) else rep("", nrow(d))
+    symbol[is.na(symbol)] <- ""
+    labels <- ifelse(
+      nzchar(symbol),
+      paste0(d$gene_id, " (", symbol, ") | ", d$Analysis_class),
+      paste0(d$gene_id, " | ", d$Analysis_class)
+    )
+    selectizeInput(
+      "dtu_gene", "Selected gene",
+      choices = stats::setNames(d$gene_id, labels),
+      selected = d$gene_id[1],
+      options = list(placeholder = "Search gene ID or symbol")
+    )
+  })
+
+  dtu_usage_plot_reactive <- reactive({
+    req(rv$dtu_result, input$dtu_gene)
+    make_dtu_usage_plot(rv$dtu_result, input$dtu_gene,
+                        input$plot_theme %||% "classic", input$plot_font_family %||% "serif")
+  })
+  dtu_switch_plot_reactive <- reactive({
+    req(rv$dtu_result, input$dtu_gene)
+    make_dtu_switch_plot(rv$dtu_result, input$dtu_gene,
+                         input$plot_theme %||% "classic", input$plot_font_family %||% "serif")
+  })
+  dtu_gene_expression_plot_reactive <- reactive({
+    req(rv$dtu_result, input$dtu_gene)
+    make_dtu_gene_expression_plot(rv$dtu_result, input$dtu_gene,
+                                  input$plot_theme %||% "classic", input$plot_font_family %||% "serif")
+  })
+  dge_dtu_plot_reactive <- reactive({
+    req(rv$dtu_result)
+    make_dge_dtu_plot(rv$dtu_result,
+                      input$plot_theme %||% "classic", input$plot_font_family %||% "serif")
+  })
+
+  output$dtu_usage_plot <- renderPlot({
+    tryCatch(dtu_usage_plot_reactive(), error = function(e) {
+      plot.new(); text(0.5, 0.5, e$message, cex = 1.05)
+    })
+  }, width = function() input$dtu_plot_width, height = function() input$dtu_plot_height)
+  output$dtu_switch_plot <- renderPlot({
+    tryCatch(dtu_switch_plot_reactive(), error = function(e) {
+      plot.new(); text(0.5, 0.5, e$message, cex = 1.05)
+    })
+  }, width = function() input$dtu_plot_width, height = function() input$dtu_plot_height)
+  output$dtu_gene_expression_plot <- renderPlot({
+    tryCatch(dtu_gene_expression_plot_reactive(), error = function(e) {
+      plot.new(); text(0.5, 0.5, e$message, cex = 1.05)
+    })
+  }, width = function() input$dtu_plot_width, height = function() input$dtu_plot_height)
+  output$dge_dtu_plot <- renderPlot({
+    tryCatch(dge_dtu_plot_reactive(), error = function(e) {
+      plot.new(); text(0.5, 0.5, e$message, cex = 1.05)
+    })
+  }, width = function() input$dtu_plot_width, height = function() input$dtu_plot_height)
+
+  output$dtu_gene_usage_table <- renderDT({
+    req(rv$dtu_result, input$dtu_gene)
+    d <- dtu_gene_usage_table(rv$dtu_result, input$dtu_gene)
+    tbl <- datatable(d, rownames = FALSE, options = list(pageLength = 15, scrollX = TRUE))
+    pct_cols <- intersect(c("control_usage", "treatment_usage", "delta_usage"), names(d))
+    if (length(pct_cols)) tbl <- DT::formatPercentage(tbl, pct_cols, digits = 1)
+    tbl
+  })
+
+  output$download_dtu_gene_results <- downloadHandler(
+    filename = function() paste0("DTU_gene_results_", Sys.Date(), ".csv"),
+    content = function(file) { req(rv$dtu_result); write.csv(rv$dtu_result$gene_results, file, row.names = FALSE) }
+  )
+  output$download_dtu_transcript_results <- downloadHandler(
+    filename = function() paste0("DTU_transcript_results_", Sys.Date(), ".csv"),
+    content = function(file) { req(rv$dtu_result); write.csv(rv$dtu_result$transcript_results, file, row.names = FALSE) }
+  )
+  output$download_dtu_gene_usage <- downloadHandler(
+    filename = function() paste0("DTU_", safe_filename_part(input$dtu_gene %||% "gene"), "_usage_", Sys.Date(), ".csv"),
+    content = function(file) {
+      req(rv$dtu_result, input$dtu_gene)
+      write.csv(dtu_gene_usage_table(rv$dtu_result, input$dtu_gene), file, row.names = FALSE)
+    }
+  )
+  output$download_dtu_usage <- download_plot_server(
+    dtu_usage_plot_reactive, reactive(input$format_dtu_usage), "DTU_usage",
+    reactive(input$dtu_plot_width), reactive(input$dtu_plot_height)
+  )
+  output$download_dtu_switch <- download_plot_server(
+    dtu_switch_plot_reactive, reactive(input$format_dtu_switch), "DTU_isoform_switch",
+    reactive(input$dtu_plot_width), reactive(input$dtu_plot_height)
+  )
+  output$download_dtu_gene_expression <- download_plot_server(
+    dtu_gene_expression_plot_reactive, reactive(input$format_dtu_gene_expression), "DTU_gene_expression",
+    reactive(input$dtu_plot_width), reactive(input$dtu_plot_height)
+  )
+  output$download_dge_dtu <- download_plot_server(
+    dge_dtu_plot_reactive, reactive(input$format_dge_dtu), "DGE_vs_DTU",
+    reactive(input$dtu_plot_width), reactive(input$dtu_plot_height)
+  )
 
   output$data_summary_box <- renderUI({
     df <- rv$de
@@ -5185,6 +5702,15 @@ server <- function(input, output, session) {
     add_param("GSEA", "FDR display cutoff", input$gsea_fdr_cutoff %||% 0.05)
     add_param("GSEA", "Top pathways", input$gsea_top_n %||% 20)
 
+    if (!is.null(rv$transcript_data)) {
+      add_param("Transcript / Isoform", "Input type", rv$transcript_data$quant_type %||% "")
+      add_param("Transcript / Isoform", "Minimum transcript count", input$dtu_min_count %||% 10)
+      add_param("Transcript / Isoform", "Minimum transcript usage", input$dtu_min_prop %||% 0.1)
+      add_param("Transcript / Isoform", "Minimum samples", input$dtu_min_samples %||% 2)
+      add_param("Transcript / Isoform", "DTU FDR cutoff", input$dtu_fdr %||% 0.05)
+      add_param("Transcript / Isoform", "Minimum absolute usage change", input$dtu_min_delta %||% 0.1)
+    }
+
     add_param("KEGG / Pathview", "KEGG organism code", input$kegg_species %||% "")
     add_param("KEGG / Pathview", "KEGG enrichment source", input$kegg_enrichment_source %||% "gene")
     add_param("KEGG / Pathview", "KEGG EC column", input$kegg_ec_column %||% "")
@@ -5257,6 +5783,10 @@ server <- function(input, output, session) {
 
     add_param("Plot sizes", "DE plot width", input$de_plot_width %||% 350)
     add_param("Plot sizes", "DE plot height", input$de_plot_height %||% 200)
+    if (!is.null(rv$transcript_data)) {
+      add_param("Plot sizes", "Transcript plot width", input$dtu_plot_width %||% 700)
+      add_param("Plot sizes", "Transcript plot height", input$dtu_plot_height %||% 450)
+    }
     add_param("Plot sizes", "GSEA plot width", input$gsea_plot_width %||% 750)
     add_param("Plot sizes", "GSEA plot height", input$gsea_plot_height %||% 500)
     add_param("Plot sizes", "GO plot width", input$go_plot_width %||% 450)
@@ -5344,6 +5874,11 @@ server <- function(input, output, session) {
     }
     if (!is.null(rv$norm_counts)) choices <- c(choices, "Normalized counts" = "normalized_counts")
     if (!is.null(rv$pca)) choices <- c(choices, "PCA plot" = "pca")
+    if (!is.null(rv$transcript_data) &&
+        requireNamespace("DRIMSeq", quietly = TRUE) &&
+        requireNamespace("stageR", quietly = TRUE)) {
+      choices <- c(choices, "Transcript / isoform DTU analysis" = "dtu")
+    }
     choices
   })
 
@@ -5780,6 +6315,56 @@ server <- function(input, output, session) {
       pca = list(label = "PCA plot", run = function(out_dir) {
         req(rv$pca)
         run_all_save_plot(pca_reactive(), run_all_plot_file(out_dir, "PCA", img_fmt), input$de_plot_width, input$de_plot_height)
+      }),
+      dtu = list(label = "Transcript / isoform DTU analysis", run = function(out_dir) {
+        req(rv$transcript_data, rv$de)
+        rv$dtu_result <- run_dtu_analysis(
+          transcript_data = rv$transcript_data,
+          de_df = rv$de,
+          norm_counts = rv$norm_counts,
+          min_feature_count = input$dtu_min_count %||% 10,
+          min_feature_prop = input$dtu_min_prop %||% 0.1,
+          min_samples = input$dtu_min_samples %||% 2,
+          fdr_cutoff = input$dtu_fdr %||% 0.05,
+          min_delta_usage = input$dtu_min_delta %||% 0.1,
+          dge_alpha = input$alpha %||% 0.05,
+          dge_lfc_cutoff = input$lfc_cutoff %||% 1
+        )
+        files <- c(
+          run_all_write_csv(rv$dtu_result$gene_results, file.path(out_dir, "DTU_gene_results.csv")),
+          run_all_write_csv(rv$dtu_result$transcript_results, file.path(out_dir, "DTU_transcript_results.csv"))
+        )
+        top <- rv$dtu_result$gene_results
+        top <- top[order(!top$isoform_switch, !top$DTU, top$gene_FDR, na.last = TRUE), , drop = FALSE]
+        if (nrow(top)) {
+          gene_id <- top$gene_id[1]
+          files <- c(files,
+            run_all_write_csv(dtu_gene_usage_table(rv$dtu_result, gene_id), file.path(out_dir, paste0("DTU_", run_all_safe_filename(gene_id), "_usage.csv"))),
+            run_all_save_plot(make_dtu_usage_plot(rv$dtu_result, gene_id, input$plot_theme %||% "classic", input$plot_font_family %||% "serif"),
+                              run_all_plot_file(out_dir, paste0("DTU_", run_all_safe_filename(gene_id), "_replicate_usage"), img_fmt),
+                              input$dtu_plot_width %||% 700, input$dtu_plot_height %||% 450),
+            run_all_save_plot(make_dtu_switch_plot(rv$dtu_result, gene_id, input$plot_theme %||% "classic", input$plot_font_family %||% "serif"),
+                              run_all_plot_file(out_dir, paste0("DTU_", run_all_safe_filename(gene_id), "_mean_usage"), img_fmt),
+                              input$dtu_plot_width %||% 700, input$dtu_plot_height %||% 450)
+          )
+          expression_plot <- tryCatch(make_dtu_gene_expression_plot(
+            rv$dtu_result, gene_id, input$plot_theme %||% "classic", input$plot_font_family %||% "serif"
+          ), error = function(e) NULL)
+          if (!is.null(expression_plot)) {
+            files <- c(files, run_all_save_plot(expression_plot,
+              run_all_plot_file(out_dir, paste0("DTU_", run_all_safe_filename(gene_id), "_gene_expression"), img_fmt),
+              input$dtu_plot_width %||% 700, input$dtu_plot_height %||% 450))
+          }
+        }
+        comparison_plot <- tryCatch(make_dge_dtu_plot(
+          rv$dtu_result, input$plot_theme %||% "classic", input$plot_font_family %||% "serif"
+        ), error = function(e) NULL)
+        if (!is.null(comparison_plot)) {
+          files <- c(files, run_all_save_plot(comparison_plot,
+            run_all_plot_file(out_dir, "DGE_vs_DTU", img_fmt),
+            input$dtu_plot_width %||% 700, input$dtu_plot_height %||% 450))
+        }
+        files
       }),
       gsea = list(label = "Gene Set Enrichment Analysis", run = function(out_dir) {
         req(rv$de, input$gsea_ranking)

@@ -66,13 +66,13 @@ The app can run DESeq2 directly from several count/quantification input types:
 | Input type | Expected files | Notes |
 |------------|----------------|-------|
 | RSEM gene mode | `*.genes.results` | Default RSEM mode. Input rows are treated as gene IDs. |
-| RSEM transcript mode | `*.transcripts.results` | Check **RSEM files contain transcript IDs** and provide a two-column tx2gene table. |
+| RSEM transcript mode | `*.isoforms.results` | Check **RSEM files contain transcript/isoform IDs (not gene IDs)** and provide a two-column tx2gene table. |
 | Salmon | `*/quant.sf` | One sample folder per `quant.sf`; requires tx2gene. |
 | Kallisto | `*/abundance.tsv` | One sample folder per `abundance.tsv`; requires tx2gene. |
 | featureCounts | one uploaded TXT/TSV/CSV table | Uses columns after `gene_biotype` when present, otherwise after `Length`. |
 | Count matrix | one uploaded CSV/TSV/TXT/XLS/XLSX table | First column is gene IDs; remaining columns are raw sample counts. |
 
-The app scans sample IDs and creates editable colData.
+The app scans sample IDs and creates editable colData. If an RSEM folder contains `*.isoforms.results` but gene mode is selected, the scan stops safely and asks you to check **RSEM files contain transcript/isoform IDs (not gene IDs)** instead of failing with a row-length error.
 
 colData supports CSV, TSV, TXT, XLS, and XLSX files. Text files can use comma or tab delimiters.
 
@@ -93,6 +93,36 @@ tx2gene options support:
 - Build tx2gene from GTF/GFF by choosing transcript and gene ID attributes.
 - Build Arabidopsis TAIR-style tx2gene by stripping the final `.number` suffix from transcript IDs.
 - Preview and download the generated tx2gene table before using it.
+- The **Use tx2gene** action displays progress while the selected mapping is read, generated, validated, and saved for the DESeq2 import.
+
+### Transcript / Isoform Analysis
+
+**Transcript / Isoform Analysis** is a permanent main tab immediately before **Run All**. Its title uses the normal theme color when the current input is RSEM transcript/isoform mode, Salmon, or Kallisto, and appears light gray for gene-level or uploaded-DE inputs. Analysis outputs become available only after a successful DESeq2 run from RSEM `*.isoforms.results`, Salmon, or Kallisto with a valid tx2gene mapping.
+
+The same transcript quantification supports two complementary analyses:
+
+- Transcript abundances summarized to genes for the existing DESeq2 differential gene-expression workflow.
+- Transcript-level abundance retained for differential transcript usage with DRIMSeq and stageR.
+
+The DTU workflow:
+
+- Requires a valid tx2gene mapping and at least two biological replicates per condition; three or more replicates are strongly preferred.
+- Uses transcript-level count-scale abundance imported with tximport and filters low-count or low-usage transcripts before testing.
+- A transcript can pass the filter by being sufficiently expressed in the required number of samples from either condition, so condition-specific isoforms can be retained even when nearly absent from the other condition.
+- Genes with fewer than two transcripts remaining after filtering are excluded because within-gene usage and stageR DTU correction require at least two testable isoforms.
+- Uses DRIMSeq to test changes in transcript proportions within a gene.
+- Uses stageR for gene-level screening followed by transcript-level confirmation and overall false-discovery-rate control.
+- Reports control usage, treatment usage, delta usage, raw p-values, gene FDR, transcript stage-wise adjusted p-values, and DGE/DTU classification. Gene symbols and short descriptions are included in gene- and transcript-level tables when available from the current annotation.
+- DRIMSeq and stageR run synchronously. Tables and plots appear only after the complete analysis finishes; large transcript datasets can take substantial time and memory.
+
+The tab contains:
+
+- **Overview:** numbers of tested genes/transcripts, significant DTU genes, candidate switches, and DGE/DTU classification counts.
+- **DTU results:** downloadable gene- and transcript-level result tables.
+- **Gene viewer:** searchable gene selector, replicate-level stacked usage plot, mean isoform-usage switch plot, total normalized gene-expression plot, and transcript-usage table.
+- **DGE vs DTU:** comparison of gene-level DESeq2 evidence with gene-level DTU evidence.
+
+A candidate **isoform switch** is defined conservatively as a gene that passes the selected DTU FDR, changes its dominant transcript between control and treatment, and has at least the selected minimum absolute change in transcript usage. DTU is broader than isoform switching, so significant DTU genes do not necessarily receive the switch label.
 
 Extra colData columns are preserved. You can choose one extra effect column for DESeq2:
 
@@ -250,12 +280,12 @@ Human or other organism TE analysis requires a compatible TE-level annotation ta
 
 - Batch runner for exporting selected analyses into a timestamped `run_all_YYYYMMDD_HHMMSS` folder.
 - Select all available outputs, clear selections, or choose specific outputs by section:
-  - Core outputs: DE table, DE summary, normalized counts, Volcano, MA, and PCA.
+  - Core outputs: DE table, DE summary, normalized counts, Volcano, MA, PCA, and transcript/isoform DTU when transcript-level input is available.
   - Enrichment: GSEA, GO enrichment, REVIGO-like GO reduction, GO offspring summary, abiotic-stress GO enrichment, KEGG enrichment, Pathview, MSigDB/Hallmark, PMN enrichment, and PMN pathway-gene lookup.
   - TE analysis: TEG enrichment, TEG volcano, and Overlapped TEs when Arabidopsis is selected.
 - Direction selector for enrichment-style analyses: upregulated only, downregulated only, up and down, all DE genes, or up/down/all.
 - Unavailable analyses are hidden based on the selected organism and current app state.
-- Outputs are organized into subfolders such as `Core_outputs`, `GO`, `KEGG`, `MSigDB_Hallmark`, `PMN`, and `TE_analysis`.
+- Outputs are organized into subfolders such as `Core_outputs`, `Transcript_Isoform`, `GO`, `KEGG`, `MSigDB_Hallmark`, `PMN`, and `TE_analysis`.
 - Each run writes `run_all_log.txt`. If one selected analysis fails, the batch continues and the error is recorded in the log.
 - Optional HTML report: when `rmarkdown`, `knitr`, and Pandoc are available, Run All creates `RNAseq_Run_All_Report.html` with plot images, CSV previews, file links, and short explanations for each analysis section.
 - Gene family enrichment is included for Arabidopsis and human when available, with outputs saved under `Gene_Families`.

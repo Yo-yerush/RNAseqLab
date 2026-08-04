@@ -66,7 +66,7 @@ count_data_preview_notes <- function(input_type) {
             "RSEM - *.genes.results",
             "----------------------",
             "Load a folder with one `*.genes.results` file per sample.",
-            "For RSEM transcript-level input, check the transcript-ID option and use `*.transcripts.results` with tx2gene.",
+            "For RSEM transcript-level input, check the transcript-ID option and use `*.isoforms.results` with tx2gene.",
             "",
             "Example folder:",
             "RSEM_results/",
