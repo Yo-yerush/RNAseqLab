@@ -791,7 +791,7 @@ ui <- fluidPage(
         sliderInput("de_plot_width",  "Plot width (px)",  min = 200, max = 1600, value = 350, step = 50),
         sliderInput("de_plot_height", "Plot height (px)", min = 200, max = 1200, value = 200, step = 50)
       ),
-      conditionalPanel("input.tabs == 'Gene Set Enrichment (GSEA)'",
+      conditionalPanel("input.tabs == 'GSEA'",
         sliderInput("gsea_plot_width",  "GSEA plot width (px)",  min = 300, max = 1600, value = 750, step = 50),
         sliderInput("gsea_plot_height", "GSEA plot height (px)", min = 250, max = 1200, value = 500, step = 50)
       ),
@@ -1414,7 +1414,7 @@ ui <- fluidPage(
           )
         ),
 
-        tabPanel("Gene Set Enrichment (GSEA)",
+        tabPanel("GSEA",
           wellPanel(
             fluidRow(
               column(4, uiOutput("gsea_database_ui")),
