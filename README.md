@@ -168,6 +168,16 @@ Annotation table downloads include the organism name and tax ID in the filename.
 - DE table preview.
 - Download DE table and normalized counts.
 
+### Quality Control
+
+The permanent **Quality Control** tab is populated by a completed DESeq2 run from RSEM, Salmon, Kallisto, featureCounts, or a count matrix. It is unavailable for a DE-results-only upload because that input has no sample-level count matrix.
+
+- **Overview:** sample/condition counts, imported and retained features, per-sample library size, detected features, zero fraction, DESeq2 size factor, and lightweight replicate/library warnings.
+- **Sample relationships:** PCA plus VST-based sample-correlation and Euclidean-distance heatmaps and a hierarchical-clustering dendrogram.
+- **DESeq2 diagnostics:** dispersion estimates, size factors, Cook's-distance summaries, and feature-retention/independent-filtering counts.
+- **Transcript / Isoform QC:** for transcript-level imports, transcript-to-gene mapping coverage, transcript detection by sample, non-finite values, transcripts-per-gene distribution, single- versus multi-isoform gene counts, and post-DTU tested totals.
+- QC values are captured during the existing DESeq2 run. Opening the tab does not rerun DESeq2 or start a separate heavy process.
+
 ### Organism Annotations
 
 - Load a manual annotation CSV/TSV/TXT.
@@ -320,6 +330,7 @@ The upregulated/downregulated/not-significant colors are used across DE result p
 - UniProt annotation building requires internet access.
 - RefSeq GTF annotation building works from a local GTF file and does not require internet access after the GTF is downloaded.
 - PCA requires count data and is available only after running DESeq2 from quantification/count files.
+- Quality Control requires sample-level count or quantification data and a completed DESeq2 run; it is not available from an uploaded DE-results table.
 - Run All HTML reports require `rmarkdown`, `knitr`, and Pandoc. The installer installs the R packages, but Pandoc usually comes from RStudio, Quarto, or a standalone Pandoc installation. If Pandoc is missing, Run All still completes and skips the HTML report.
 - No results are saved automatically. Use the download buttons.
 

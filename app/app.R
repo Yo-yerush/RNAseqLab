@@ -20,6 +20,7 @@ options(shiny.maxRequestSize = 500 * 1024^2)
 
 # source(file.path("R", "opening_yo.R"), local = TRUE)
 source(file.path("R", "helpers.R"), local = TRUE)
+source(file.path("R", "qc.R"), local = TRUE)
 source(file.path("R", "count_data_preview.R"), local = TRUE)
 source(file.path("R", "run_all.R"), local = TRUE)
 source(file.path("R", "build_uniprot_description_file.R"), local = TRUE)
@@ -523,6 +524,77 @@ default_msigdb_species <- if ("Arabidopsis thaliana" %in% msigdb_species_choices
 }
 msigdb_species_select_choices <- c("Not available for selected organism" = "", msigdb_species_choices)
 pmn_database_choices <- c("Not available for selected organism" = "", pmn_catalog_choices())
+
+quality_control_tab_ui <- function() {
+  tabPanel(
+    title = uiOutput("qc_main_title", inline = TRUE),
+    value = "QC",
+    uiOutput("qc_availability_ui"),
+    tabsetPanel(
+      id = "qc_results_tabs",
+      tabPanel(
+        "Overview",
+        uiOutput("qc_overview_ui"),
+        h4("Sample metrics"),
+        DTOutput("qc_sample_metrics_table"),
+        div(class = "download-row", downloadButton("download_qc_sample_metrics", "Download sample metrics"))
+      ),
+      tabPanel(
+        "Sample relationships",
+        fluidRow(
+          column(8,
+            h4("PCA"),
+            uiOutput("qc_pca_plot_ui"),
+            download_plot_ui("qc_pca", "Download PCA plot")
+          ),
+          column(4, wellPanel(
+            checkboxInput("qc_pca_show_labels", "Show sample labels", value = TRUE),
+            selectInput("qc_color_palette", "Sample color set",
+              choices = c("default", "Okabe-Ito" = "okabe_ito", "Set 1" = "set1", "Set 2" = "set2",
+                          "Dark 2" = "dark2", "Paired" = "paired", "Tableau" = "tableau",
+                          "Viridis" = "viridis", "Plasma" = "plasma", "Rainbow" = "rainbow", "Pastel" = "pastel"),
+              selected = "default"
+            ),
+            sliderInput("qc_pca_point_size", "Point size", min = 0.5, max = 12, value = 4, step = 0.5),
+            sliderInput("qc_pca_width", "Width (px)", min = 250, max = 1000, value = 300, step = 25),
+            sliderInput("qc_pca_height", "Height (px)", min = 200, max = 1000, value = 200, step = 25),
+            div(class = "muted", "Relationships use VST-transformed expression.")
+          ))
+        ),
+        fluidRow(
+          column(6, h4("Sample correlation"), plotOutput("qc_correlation_plot", height = "480px")),
+          column(6, h4("Sample distance"), plotOutput("qc_distance_plot", height = "480px"))
+        ),
+        h4("Hierarchical clustering"),
+        plotOutput("qc_dendrogram_plot", height = "430px")
+      ),
+      tabPanel(
+        "DESeq2 diagnostics",
+        div(class = "muted", "These diagnostics were captured during the DESeq2 run; opening this sub-tab does not rerun DESeq2."),
+        fluidRow(
+          column(6, plotOutput("qc_dispersion_plot", height = "430px")),
+          column(6, plotOutput("qc_size_factor_plot", height = "430px"))
+        ),
+        fluidRow(
+          column(6, h4("Filtering summary"), DTOutput("qc_filtering_table"),
+                 div(class = "download-row", downloadButton("download_qc_filtering", "Download filtering summary"))),
+          column(6, h4("Cook's distance by sample"), DTOutput("qc_cooks_table"))
+        )
+      ),
+      tabPanel(
+        title = uiOutput("transcript_qc_tab_title", inline = TRUE),
+        value = "Transcript / Isoform QC",
+        fluidRow(
+          column(6, h4("Transcripts per gene"), plotOutput("tx_qc_transcripts_per_gene_plot", height = "400px")),
+          column(6, h4("Transcript-level sample metrics"), DTOutput("tx_qc_sample_metrics_table"))
+        ),
+        h4("Mapping and DTU eligibility"),
+        DTOutput("tx_qc_summary_table"),
+        div(class = "download-row", downloadButton("download_tx_qc_summary", "Download transcript QC"))
+      )
+    )
+  )
+}
 
 transcript_isoform_tab_ui <- function() {
   tabPanel(
@@ -1067,6 +1139,8 @@ ui <- fluidPage(
           DTOutput("de_preview"),
           div(class = "download-row", downloadButton("download_de", "Download DE table"), downloadButton("download_norm_counts", "Download normalized counts"))
         ),
+
+        quality_control_tab_ui(),
 
         tabPanel("Organism annotations",
           fluidRow(
@@ -1927,6 +2001,7 @@ ui <- fluidPage(
               tags$ul(
                 tags$li(strong("Data input: "), "Upload DE CSV/TSV/TXT files or run DESeq2 directly from RSEM ", code("*.genes.results"), ", RSEM transcript-level ", code("*.isoforms.results"), ", Salmon ", code("quant.sf"), ", Kallisto ", code("abundance.tsv"), ", featureCounts output, or a count matrix with gene IDs in the first column and sample counts in the remaining columns. Entering or selecting a quantification folder path does not start processing. For RSEM, pressing Scan folder enables transcript/isoform mode for an isoform-only folder and disables it for a gene-only folder; if both file types are present, the checkbox determines the scanned mode. CSV, TSV, and TXT uploads can use comma or tab delimiters. PCA is shown here only after running DESeq2 from count/quantification data."),
                 tags$li(strong("DESeq2 from quantification/counts: "), "Use the editable colData table to set conditions. RSEM transcript/isoform validation runs only when the transcript/isoform checkbox is checked or when Scan folder detects an isoform-only folder. It validates every file and uses the embedded transcript_id and gene_id columns. The mapping dialog can review the detected mapping or replace it with an uploaded table, GTF/GFF attributes, or suffix removal. Salmon and Kallisto still require one of these external tx2gene mapping sources. Optional extra colData columns can be used as an adjusted effect or as a condition:effect interaction. The Data tab prints the exact model formula and contrast."),
+                tags$li(strong("Quality Control (QC): "), "Available after a DESeq2 run from sample-level count or quantification data. Overview reports library size, detected features, zero fraction, replicate warnings, and filtering retention. Sample relationships contains PCA with palette, point-size, width, and height controls, plus VST sample-correlation and distance heatmaps and hierarchical clustering. DESeq2 diagnostics contains dispersion estimates, normalization factors, Cook's-distance summaries, and independent-filtering counts. Transcript / Isoform QC reports mapping coverage, transcript detection, transcripts per gene, and DTU eligibility for transcript-level inputs. Diagnostic values are captured during the existing DESeq2 run; opening the QC tab does not rerun the model. A DE-results-only upload cannot provide these sample-level metrics."),
                 tags$li(strong("DE results: "), "Volcano and MA plots use ", code("gene_id"), ", ", code("log2FoldChange"), ", ", code("padj"), " and optional ", code("baseMean"), ". The annotation search table is shown below the plots."),
                 tags$li(strong("Organism annotations: "), "Choose organism and Gene ID type, load a manual annotation table, or build one from UniProt. Human Ensembl IDs can be bridged through the selected OrgDb when available."),
                 tags$li(strong("DE preview: "), "The compact DE summary and preview table are shown in the Data input tab with DE and normalized-count downloads."),
@@ -1936,7 +2011,7 @@ ui <- fluidPage(
                   strong("Gene Set Enrichment (GSEA): "),
                   "Runs preranked ", code("fgseaMultilevel"), " over all tested genes, so the input must not be restricted to significant genes. Choose GO Biological Process, KEGG, Hallmark, PMN, an uploaded GMT file, or TAIR10 transposable-element genes grouped by TE superfamily when Arabidopsis (tax ID 3702) is selected. GO, KEGG, Hallmark, and PMN organism/database settings mirror their corresponding tabs. Rank by the DESeq2 statistic when available (recommended), signed ", code("-log10(pValue)"), ", or ", code("log2FoldChange"), ". Minimum and maximum set sizes control which gene sets are tested. Results include NES and FDR, an NES dotplot, enrichment curve, leading-edge genes, and a pathway-gene table. The Pathway genes volcano shows only genes in the selected pathway, without an all-gene background, and classifies them using the current adjusted-p-value and log2FC thresholds."
                 ),
-                tags$li(strong("Transcript / Isoform Analysis: "), "A permanent main tab immediately before Run All. Its title uses the normal theme color for RSEM transcript/isoform mode, Salmon, or Kallisto and is light gray for inputs without transcript-level data. After a successful transcript-level DESeq2 import with a valid tx2gene mapping, the retained transcript matrix is tested separately with DRIMSeq and stageR while the existing gene-level DGE analysis remains available. Low-count or low-usage transcripts are filtered before modeling, and genes with fewer than two remaining testable isoforms are excluded because DTU correction requires multiple transcripts per gene. Results appear only after the full synchronous run completes and include annotated gene- and transcript-level tables, within-gene usage by replicate, mean usage changes, total gene expression, DGE-versus-DTU classification, and conservative candidate isoform switches based on significant DTU, a dominant-transcript change, and the selected minimum absolute usage change. In the Gene viewer, one palette selector keeps transcript colors consistent across both isoform-usage plots, while the total gene-expression boxplot has controls for dimensions, treatment/control colors, points, jitter, and box width. The DGE vs DTU sub-tab also provides a right-side color-set selector. At least two biological replicates per condition are required; three or more are strongly preferred."),
+                tags$li(strong("Transcript / Isoform Analysis: "), "A permanent main tab immediately before Run All. Its title uses the normal theme color for RSEM transcript/isoform mode, Salmon, or Kallisto and is light gray for inputs without transcript-level data. Transcript input QC is shown under the main Quality Control (QC) tab. After a successful transcript-level DESeq2 import with a valid tx2gene mapping, the retained transcript matrix is tested separately with DRIMSeq and stageR while the existing gene-level DGE analysis remains available. Low-count or low-usage transcripts are filtered before modeling, and genes with fewer than two remaining testable isoforms are excluded because DTU correction requires multiple transcripts per gene. Results appear only after the full synchronous run completes and include annotated gene- and transcript-level tables, within-gene usage by replicate, mean usage changes, total gene expression, DGE-versus-DTU classification, and conservative candidate isoform switches based on significant DTU, a dominant-transcript change, and the selected minimum absolute usage change. In the Gene viewer, one palette selector keeps transcript colors consistent across both isoform-usage plots, while the total gene-expression boxplot has controls for dimensions, treatment/control colors, points, jitter, and box width. The DGE vs DTU sub-tab also provides a right-side color-set selector. At least two biological replicates per condition are required; three or more are strongly preferred."),
                 tags$li(strong("PMN analysis: "), "Runs Plant Metabolic Network pathway enrichment for plant Cyc databases such as AraCyc, OryzaCyc, CornCyc, and TomatoCyc. The app auto-selects a PMN database when the selected organism is mapped; otherwise select or type a Cyc database manually."),
                 tags$li(strong("MSigDB/Hallmark: "), "Runs Hallmark over-representation analysis with ", code("msigdbr"), ". The run button appears only for species available in MSigDB."),
                 tags$li(strong("TE analysis: "), "Arabidopsis-only TE workflows use TAIR10 TE metadata and TAIR gene ranges. The TEG tabs run TE superfamily enrichment and TEG volcano plots. The Overlapped TEs tab finds DE genes with nearby or gene-body TE overlaps, shows an overlapped-gene volcano, TE family counts, and Fisher-test TE family enrichment using either all TAIR10 TEs or region-aware TEs as background."),
@@ -1999,6 +2074,7 @@ server <- function(input, output, session) {
     norm_counts = NULL,
     vst_counts = NULL,
     pca = NULL,
+    qc_result = NULL,
     coldata = NULL,
     coldata_raw = NULL,
     coldata_condition_col = NULL,
@@ -2090,6 +2166,7 @@ server <- function(input, output, session) {
     log = character()
   )
 
+  ### tabs names font options
   output$custom_groups_At_tab_title <- renderUI({
     is_arabidopsis <- identical(
       suppressWarnings(as.integer(rv$selected_tax_id)),
@@ -2145,6 +2222,33 @@ server <- function(input, output, session) {
     tags$span(
       "Transcript / Isoform Analysis",
       style = if (isTRUE(is_transcript_mode)) {
+        ""
+      } else {
+        "color: lightgray; font-weight: bold;"
+      }
+    )
+  })
+
+  output$transcript_qc_tab_title <- renderUI({
+    is_transcript_mode <- identical(input$data_mode, "rsem") &&
+      current_input_needs_tx2gene()
+
+    tags$span(
+      "Transcript / Isoform QC",
+      style = if (isTRUE(is_transcript_mode)) {
+        ""
+      } else {
+        "color: lightgray; font-weight: bold;"
+      }
+    )
+  })
+
+  output$qc_main_title <- renderUI({
+    is_deseq_mode <- identical(input$data_mode, "rsem")
+
+    tags$span(
+      "QC",
+      style = if (isTRUE(is_deseq_mode)) {
         ""
       } else {
         "color: lightgray; font-weight: bold;"
@@ -3651,6 +3755,7 @@ server <- function(input, output, session) {
       rv$deseq_all_comparisons <- NULL
       rv$venn_direction_filters <- list()
       rv$transcript_data <- NULL
+      rv$qc_result <- NULL
       clear_analysis_results()
     }
   })
@@ -3669,6 +3774,7 @@ server <- function(input, output, session) {
     append_log("Running DESeq2", paste0("(", deseq_input_type, "):"), input$treatment, "vs", input$control, level = "STEP")
     rv$transcript_data <- NULL
     rv$dtu_result <- NULL
+    rv$qc_result <- NULL
     withProgress(message = "Running DESeq2", value = 0.1, {
       tryCatch({
         incProgress(0.2, detail = "Subsetting to comparison samples")
@@ -3691,6 +3797,7 @@ server <- function(input, output, session) {
         rv$de_design_formula <- res$design_formula
         rv$de_contrast <- res$contrast
         rv$transcript_data <- res$transcript_data
+        rv$qc_result <- res$qc_result
         rv$deseq_all_comparisons <- NULL
         rv$venn_direction_filters <- list()
         clear_analysis_results()
@@ -5013,6 +5120,178 @@ server <- function(input, output, session) {
   output$pca_message <- renderText({
     if (is.null(rv$pca)) "PCA is not available from a DE-only CSV." else ""
   })
+
+  output$qc_availability_ui <- renderUI({
+    if (identical(input$data_mode, "csv")) {
+      return(wellPanel(style = "border-left: 4px solid #b0b0b0;",
+        strong("QC is unavailable for a DE-results-only upload."),
+        div(class = "muted", "Upload sample-level count or quantification data and run DESeq2 to calculate QC metrics.")))
+    }
+    if (is.null(rv$qc_result)) {
+      return(wellPanel(style = "border-left: 4px solid #b0b0b0;",
+        strong("QC will appear after DESeq2 finishes."),
+        div(class = "muted", "The QC tab does not start a separate analysis.")))
+    }
+    NULL
+  })
+
+  output$qc_overview_ui <- renderUI({
+    req(rv$qc_result)
+    q <- rv$qc_result; o <- q$overview
+    warning_ui <- if (length(q$warnings)) {
+      wellPanel(style = "border-left: 4px solid #d99000;",
+        strong("Items to review"), tags$ul(lapply(q$warnings, tags$li)))
+    } else {
+      wellPanel(style = "border-left: 4px solid #3c9d5d;", strong("No automatic QC warnings were triggered."))
+    }
+    tagList(
+      fluidRow(
+        column(2, wellPanel(strong(o$samples), div(class = "muted", "Samples"))),
+        column(2, wellPanel(strong(o$conditions), div(class = "muted", "Conditions"))),
+        column(3, wellPanel(strong(format(o$imported_features, big.mark = ",")), div(class = "muted", "Imported features"))),
+        column(3, wellPanel(strong(format(o$retained_features, big.mark = ",")), div(class = "muted", "Retained for DESeq2"))),
+        column(2, wellPanel(strong(q$input_label), div(class = "muted", "Input")))
+      ),
+      warning_ui
+    )
+  })
+
+  output$qc_sample_metrics_table <- renderDT({
+    req(rv$qc_result)
+    d <- rv$qc_result$sample_metrics
+    d$zero_fraction <- round(d$zero_fraction, 4)
+    d$size_factor <- signif(d$size_factor, 4)
+    d$max_cooks <- signif(d$max_cooks, 4)
+    datatable(d, rownames = FALSE, filter = "top", options = list(pageLength = 15, scrollX = TRUE))
+  })
+
+  qc_relationships <- reactive({
+    req(rv$vst_counts, rv$qc_result)
+    qc_relationship_matrices(rv$vst_counts)
+  })
+
+  qc_pca_reactive <- reactive({
+    req(rv$pca, rv$qc_result)
+    make_pca_plot(rv$pca, "PCA", point_size = input$qc_pca_point_size %||% 4, point_alpha = input$plot_alpha,
+      show_labels = isTRUE(input$qc_pca_show_labels), conditions = unique(rv$pca$condition),
+      plot_theme = input$plot_theme %||% "classic", font_family = input$plot_font_family %||% "serif",
+      color_palette = input$qc_color_palette %||% "default")
+  })
+  output$qc_pca_plot_ui <- renderUI({
+    plotOutput(
+      "qc_pca_plot",
+      width = paste0(input$qc_pca_width %||% 650, "px"),
+      height = paste0(input$qc_pca_height %||% 420, "px")
+    )
+  })
+  output$qc_pca_plot <- renderPlot(
+    qc_pca_reactive(),
+    width = function() input$qc_pca_width %||% 650,
+    height = function() input$qc_pca_height %||% 420
+  )
+  output$download_qc_pca <- download_plot_server(
+    qc_pca_reactive, reactive(input$format_qc_pca), "QC_PCA",
+    reactive(input$qc_pca_width %||% 650), reactive(input$qc_pca_height %||% 420)
+  )
+
+  qc_correlation_reactive <- reactive({
+    rel <- qc_relationships(); ord <- rel$hclust$order
+    make_qc_heatmap_plot(rel$correlation[ord, ord, drop = FALSE], "VST sample correlation", midpoint = 0,
+      plot_theme = input$plot_theme %||% "classic", font_family = input$plot_font_family %||% "serif")
+  })
+  output$qc_correlation_plot <- renderPlot(qc_correlation_reactive())
+
+  qc_distance_reactive <- reactive({
+    rel <- qc_relationships(); ord <- rel$hclust$order
+    make_qc_heatmap_plot(rel$distance[ord, ord, drop = FALSE], "VST Euclidean distance", high = "#B2182B",
+      plot_theme = input$plot_theme %||% "classic", font_family = input$plot_font_family %||% "serif")
+  })
+  output$qc_distance_plot <- renderPlot(qc_distance_reactive())
+
+  qc_dendrogram_reactive <- reactive({
+    make_qc_dendrogram_plot(qc_relationships()$hclust,
+      plot_theme = input$plot_theme %||% "classic", font_family = input$plot_font_family %||% "serif")
+  })
+  output$qc_dendrogram_plot <- renderPlot(qc_dendrogram_reactive())
+
+  qc_dispersion_reactive <- reactive({
+    req(rv$qc_result)
+    make_qc_dispersion_plot(rv$qc_result, plot_theme = input$plot_theme %||% "classic",
+      font_family = input$plot_font_family %||% "serif")
+  })
+  output$qc_dispersion_plot <- renderPlot(qc_dispersion_reactive())
+
+  qc_size_factor_reactive <- reactive({
+    req(rv$qc_result)
+    make_qc_sample_bar_plot(rv$qc_result, "size_factor", rv$qc_result$normalization_label %||% "DESeq2 size factors", "Normalization factor",
+      color_palette = input$qc_color_palette %||% "default", plot_theme = input$plot_theme %||% "classic",
+      font_family = input$plot_font_family %||% "serif")
+  })
+  output$qc_size_factor_plot <- renderPlot(qc_size_factor_reactive())
+
+  output$qc_filtering_table <- renderDT({
+    req(rv$qc_result)
+    datatable(rv$qc_result$filtering, rownames = FALSE, options = list(dom = "t", ordering = FALSE))
+  })
+  output$qc_cooks_table <- renderDT({
+    req(rv$qc_result)
+    d <- rv$qc_result$sample_metrics[, c("sample_id", "condition", "max_cooks", "genes_above_cooks_cutoff"), drop = FALSE]
+    d$max_cooks <- signif(d$max_cooks, 4)
+    datatable(d, rownames = FALSE, options = list(pageLength = 15, scrollX = TRUE))
+  })
+
+  transcript_qc <- reactive({
+    req(rv$transcript_data)
+    calculate_transcript_input_qc(rv$transcript_data)
+  })
+  output$tx_qc_overview_ui <- renderUI({
+    if (is.null(rv$transcript_data)) {
+      return(wellPanel(style = "border-left: 4px solid #b0b0b0;", strong("Transcript QC is not available."),
+        div(class = "muted", "Run DESeq2 from RSEM isoforms, Salmon, or Kallisto input first.")))
+    }
+    q <- transcript_qc()
+    wellPanel(
+      strong(paste0(round(100 * q$mapping_coverage, 1), "% of quantified transcripts have a gene mapping.")),
+      div(class = "muted", "Genes with at least two mapped transcripts are potentially eligible for DTU; expression and usage filters are applied when DTU is run.")
+    )
+  })
+  output$tx_qc_summary_table <- renderDT({
+    datatable(transcript_qc_summary(), rownames = FALSE, options = list(dom = "t", ordering = FALSE))
+  })
+  output$tx_qc_sample_metrics_table <- renderDT({
+    d <- transcript_qc()$sample_metrics; d$zero_fraction <- round(d$zero_fraction, 4)
+    datatable(d, rownames = FALSE, options = list(pageLength = 12, scrollX = TRUE))
+  })
+  tx_qc_plot_reactive <- reactive({
+    make_transcript_qc_plot(transcript_qc(), plot_theme = input$plot_theme %||% "classic",
+      font_family = input$plot_font_family %||% "serif")
+  })
+  output$tx_qc_transcripts_per_gene_plot <- renderPlot(tx_qc_plot_reactive())
+
+  transcript_qc_summary <- reactive({
+    d <- transcript_qc()$summary
+    if (!is.null(rv$dtu_result)) {
+      d <- rbind(d, data.frame(
+        metric = c("Genes tested by DTU", "Transcripts tested by DTU"),
+        value = c(nrow(rv$dtu_result$gene_results), nrow(rv$dtu_result$transcript_results)),
+        stringsAsFactors = FALSE
+      ))
+    }
+    d
+  })
+
+  output$download_qc_sample_metrics <- downloadHandler(
+    filename = function() paste0("QC_sample_metrics_", Sys.Date(), ".csv"),
+    content = function(file) { req(rv$qc_result); write.csv(rv$qc_result$sample_metrics, file, row.names = FALSE) }
+  )
+  output$download_qc_filtering <- downloadHandler(
+    filename = function() paste0("QC_filtering_summary_", Sys.Date(), ".csv"),
+    content = function(file) { req(rv$qc_result); write.csv(rv$qc_result$filtering, file, row.names = FALSE) }
+  )
+  output$download_tx_qc_summary <- downloadHandler(
+    filename = function() paste0("transcript_input_QC_", Sys.Date(), ".csv"),
+    content = function(file) { write.csv(transcript_qc_summary(), file, row.names = FALSE) }
+  )
 
   observeEvent(input$run_go, {
     req(rv$de)

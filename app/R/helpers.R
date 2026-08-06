@@ -1730,6 +1730,8 @@ run_deseq2_from_rsem <- function(folder, coldata, treatment, control, lfc_shrink
         counts = txi_tx$counts[mapped_tx, , drop = FALSE],
         abundance = txi_tx$abundance[mapped_tx, , drop = FALSE],
         length = txi_tx$length[mapped_tx, , drop = FALSE],
+        imported_transcripts = nrow(txi_tx$counts),
+        mapped_transcripts = length(mapped_tx),
         tx2gene = tx_map,
         coldata = coldata,
         treatment = treatment,
@@ -1809,6 +1811,11 @@ run_deseq2_from_rsem <- function(folder, coldata, treatment, control, lfc_shrink
   pca_data$sample_label <- coldata$sample_label[match(pca_data$name, coldata$sample_id)]
   pca_data$percentVar1 <- percentVar[1]
   pca_data$percentVar2 <- percentVar[2]
+  qc_result <- calculate_deseq2_qc(
+    dds = dds, result = res, raw_counts = txi$counts[, coldata$sample_id, drop = FALSE],
+    coldata = coldata, initial_features = nrow(txi$counts), min_count = min_count,
+    input_label = switch(quant_type, rsem = "RSEM", salmon = "Salmon", kallisto = "Kallisto")
+  )
 
   list(
     de_table = res_df,
@@ -1829,7 +1836,8 @@ run_deseq2_from_rsem <- function(folder, coldata, treatment, control, lfc_shrink
     design_formula = design_label,
     contrast = contrast_label,
     coldata = coldata,
-    transcript_data = transcript_data
+    transcript_data = transcript_data,
+    qc_result = qc_result
   )
 }
 
@@ -2408,6 +2416,10 @@ run_deseq2_from_featurecounts <- function(counts_file, coldata, treatment, contr
   pca_data$sample_label <- coldata$sample_label[match(pca_data$name, coldata$sample_id)]
   pca_data$percentVar1 <- percentVar[1]
   pca_data$percentVar2 <- percentVar[2]
+  qc_result <- calculate_deseq2_qc(
+    dds = dds, result = res, raw_counts = count_mat, coldata = coldata,
+    initial_features = nrow(count_mat), min_count = min_count, input_label = "featureCounts"
+  )
 
   list(
     de_table = res_df,
@@ -2428,7 +2440,8 @@ run_deseq2_from_featurecounts <- function(counts_file, coldata, treatment, contr
     ), collapse = "\n"),
     design_formula = design_label,
     contrast = contrast_label,
-    coldata = coldata
+    coldata = coldata,
+    qc_result = qc_result
   )
 }
 
@@ -2567,6 +2580,10 @@ run_deseq2_from_count_matrix <- function(counts_file, coldata, treatment, contro
   pca_data$sample_label <- coldata$sample_label[match(pca_data$name, coldata$sample_id)]
   pca_data$percentVar1 <- percentVar[1]
   pca_data$percentVar2 <- percentVar[2]
+  qc_result <- calculate_deseq2_qc(
+    dds = dds, result = res, raw_counts = count_mat, coldata = coldata,
+    initial_features = nrow(count_mat), min_count = min_count, input_label = "Count matrix"
+  )
 
   list(
     de_table = res_df,
@@ -2587,7 +2604,8 @@ run_deseq2_from_count_matrix <- function(counts_file, coldata, treatment, contro
     ), collapse = "\n"),
     design_formula = design_label,
     contrast = contrast_label,
-    coldata = coldata
+    coldata = coldata,
+    qc_result = qc_result
   )
 }
 
