@@ -1395,7 +1395,7 @@ ui <- fluidPage(
                 fluidRow(
                   column(7, uiOutput("go_gene_codes_ui")),
                   column(2, br(), actionButton("run_go_gene_lookup", "Find genes", class = "btn-primary", style = "width:100%;")),
-                  column(3, div(class = "muted", style = "margin-top: 8px;", "Uses the selected GO annotation source, ontology, and current padj/log2FC thresholds."))
+                  column(3, div(class = "muted", style = "margin-top: 8px;", "Type any valid GO ID. Enrichment results are suggestions only; lookup uses the selected annotation source and current padj/log2FC thresholds."))
                 )
               ),
               fluidRow(
@@ -2005,7 +2005,7 @@ ui <- fluidPage(
                 tags$li(strong("DE results: "), "Volcano and MA plots use ", code("gene_id"), ", ", code("log2FoldChange"), ", ", code("padj"), " and optional ", code("baseMean"), ". The annotation search table is shown below the plots."),
                 tags$li(strong("Organism annotations: "), "Choose organism and Gene ID type, load a manual annotation table, or build one from UniProt. Human Ensembl IDs can be bridged through the selected OrgDb when available."),
                 tags$li(strong("DE preview: "), "The compact DE summary and preview table are shown in the Data input tab with DE and normalized-count downloads."),
-                tags$li(strong("GO analysis: "), "Runs topGO enrichment, REVIGO-like semantic reduction, GO offspring summaries, and abiotic-stress GO summaries. Requires a compatible OrgDb package and Gene ID type."),
+                tags$li(strong("GO analysis: "), "Runs topGO enrichment, REVIGO-like semantic reduction, GO offspring summaries, and abiotic-stress GO summaries. In GO genes, enrichment terms are optional suggestions: enter any valid GO ID, including IDs from another ontology, to filter the loaded DE results through the selected OrgDb or custom GO annotation. Requires a compatible OrgDb package and Gene ID type."),
                 tags$li(strong("KEGG analysis: "), "Downloads/caches KEGG pathways by KEGG organism code. If needed, the app maps the selected Gene ID type to KEGG-compatible Entrez IDs through the selected OrgDb. Pathview uses the same mapping to color pathway genes by log2FC."),
                 tags$li(
                   strong("Gene Set Enrichment (GSEA): "),
@@ -5338,6 +5338,8 @@ server <- function(input, output, session) {
     if ((is.null(d) || nrow(d) == 0) && rv$go_trigger > 0) {
       d <- tryCatch(get_cached_go(input$go_direction), error = function(e) NULL)
     }
+    ids <- character()
+    labels <- character()
     if (!is.null(d) && nrow(d) > 0 && "GO.ID" %in% names(d)) {
       ids <- stats::na.omit(as.character(d$GO.ID))
       ids <- unique(ids[nzchar(ids)])
@@ -5347,22 +5349,26 @@ server <- function(input, output, session) {
         labels <- paste0(ids, " - ", terms_by_id[ids])
         labels[is.na(labels) | !nzchar(labels)] <- ids[is.na(labels) | !nzchar(labels)]
       }
-      return(selectizeInput(
-        "go_gene_codes",
-        "GO ID(s)",
-        choices = stats::setNames(ids, labels),
-        selected = head(ids, 3),
-        multiple = TRUE,
-        options = list(placeholder = "Type to search GO IDs", plugins = list("remove_button"))
-      ))
     }
+
+    current_ids <- isolate(as.character(input$go_gene_codes %||% character()))
+    current_ids <- unique(current_ids[!is.na(current_ids) & nzchar(current_ids)])
+    extra_ids <- setdiff(current_ids, ids)
+    choice_ids <- c(ids, extra_ids)
+    choice_labels <- c(labels, extra_ids)
+
     selectizeInput(
       "go_gene_codes",
       "GO ID(s)",
-      choices = c("GO:0008150"),
-      selected = "GO:0008150",
+      choices = stats::setNames(choice_ids, choice_labels),
+      selected = current_ids,
       multiple = TRUE,
-      options = list(create = TRUE, placeholder = "Example: GO:0008150", plugins = list("remove_button"))
+      options = list(
+        create = TRUE,
+        createOnBlur = TRUE,
+        placeholder = if (length(ids)) "Choose a suggested term or type any GO ID" else "Type a GO ID, for example GO:0008150",
+        plugins = list("remove_button")
+      )
     )
   })
 
@@ -5374,7 +5380,7 @@ server <- function(input, output, session) {
         genes <- make_go_gene_table(
           rv$de,
           go_ids = input$go_gene_codes,
-          ontology = input$ontology %||% "BP",
+          ontology = "ALL",
           orgdb = input$go_orgdb %||% "org.At.tair.db",
           keytype = input$go_keytype %||% "TAIR",
           alpha = input$alpha,

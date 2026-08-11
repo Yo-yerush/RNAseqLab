@@ -2971,6 +2971,8 @@ make_go_gene_table <- function(de_df, go_ids, ontology = "BP", orgdb = "org.At.t
                                keytype = "TAIR", alpha = 0.05, lfc_cutoff = 1,
                                custom_go_map = NULL) {
   go_ids <- parse_go_ids(go_ids)
+  ontology <- toupper(as.character(ontology %||% "ALL"))
+  filter_ontology <- length(ontology) == 1 && ontology %in% c("BP", "MF", "CC")
   required <- if (is.null(custom_go_map)) c("AnnotationDbi", "GO.db", orgdb) else "GO.db"
   missing <- required[!vapply(required, requireNamespace, logical(1), quietly = TRUE)]
   if (length(missing)) stop("Missing required packages: ", paste(missing, collapse = ", "))
@@ -2983,7 +2985,11 @@ make_go_gene_table <- function(de_df, go_ids, ontology = "BP", orgdb = "org.At.t
     lookup_keys <- lookup_keys[!is.na(lookup_keys) & nzchar(lookup_keys)]
     if (length(lookup_keys) == 0) stop("No usable gene IDs were found for GO matching.")
 
-    annot <- custom_go_mapping_for_ontology(custom_go_map, ontology = ontology)
+    annot <- if (filter_ontology) {
+      custom_go_mapping_for_ontology(custom_go_map, ontology = ontology)
+    } else {
+      normalize_custom_go_mapping(custom_go_map)
+    }
     annot <- annot[annot$.go_lookup_key %in% lookup_keys & annot$GO_ID %in% go_ids, c(".go_lookup_key", "GO_ID"), drop = FALSE]
     if (nrow(annot) == 0) return(data.frame())
     annot <- annot[!duplicated(annot[, c(".go_lookup_key", "GO_ID"), drop = FALSE]), , drop = FALSE]
@@ -3020,7 +3026,9 @@ make_go_gene_table <- function(de_df, go_ids, ontology = "BP", orgdb = "org.At.t
   if (length(lookup_keys) == 0) stop("No usable gene IDs were found for GO matching.")
 
   annot <- AnnotationDbi::select(orgdb_obj, keys = lookup_keys, keytype = keytype, columns = c(go_col, ontology_col))
-  annot <- annot[!is.na(annot[[go_col]]) & annot[[go_col]] %in% go_ids & annot[[ontology_col]] == ontology, , drop = FALSE]
+  keep_annot <- !is.na(annot[[go_col]]) & annot[[go_col]] %in% go_ids
+  if (filter_ontology) keep_annot <- keep_annot & annot[[ontology_col]] == ontology
+  annot <- annot[keep_annot, , drop = FALSE]
   if (nrow(annot) == 0) return(data.frame())
   annot <- annot[!duplicated(annot[, c(keytype, go_col)]), c(keytype, go_col), drop = FALSE]
   names(annot) <- c(".go_lookup_key", "GO_ID")

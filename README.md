@@ -198,7 +198,7 @@ The permanent **Quality Control** tab is populated by a completed DESeq2 run fro
 
 - topGO enrichment with `weight01`, `classic`, or `elim`.
 - Fisher or KS statistic.
-- **GO genes** sub-tab: choose one or more GO IDs and view matched loaded genes as a volcano plot and table.
+- **GO genes** sub-tab: enter any valid GO ID and view matched loaded DE genes as a volcano plot and table. After GO enrichment, its terms are offered as suggestions but do not restrict manual IDs; exact-ID lookup is independent of the enrichment ontology.
 - REVIGO-like local semantic reduction using `rrvgo`.
 - GO offspring summaries for custom parent GO terms.
 - Abiotic stress (plants) GO enrichment.
