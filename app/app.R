@@ -2457,7 +2457,7 @@ server <- function(input, output, session) {
     tx2gene <- normalize_tx2gene_mapping(tx2gene)
 
     out_path <- tempfile("tx2gene_", fileext = ".csv")
-    write.csv(tx2gene, out_path, row.names = FALSE)
+    write.csv(tx2gene, out_path, row.names = FALSE, na = "")
     rv$tx2gene_df <- tx2gene
     rv$tx2gene_path <- out_path
     rv$tx2gene_label <- paste0(label, " (", nrow(tx2gene), " transcript mappings)")
@@ -3143,7 +3143,7 @@ server <- function(input, output, session) {
     },
     content = function(file) {
       mapping <- current_tx2gene_modal_mapping()
-      write.csv(mapping$tx2gene, file, row.names = FALSE)
+      write.csv(mapping$tx2gene, file, row.names = FALSE, na = "")
     }
   )
 
@@ -4104,17 +4104,17 @@ server <- function(input, output, session) {
 
   output$download_dtu_gene_results <- downloadHandler(
     filename = function() paste0("DTU_gene_results_", Sys.Date(), ".csv"),
-    content = function(file) { req(rv$dtu_result); write.csv(rv$dtu_result$gene_results, file, row.names = FALSE) }
+    content = function(file) { req(rv$dtu_result); write.csv(rv$dtu_result$gene_results, file, row.names = FALSE, na = "") }
   )
   output$download_dtu_transcript_results <- downloadHandler(
     filename = function() paste0("DTU_transcript_results_", Sys.Date(), ".csv"),
-    content = function(file) { req(rv$dtu_result); write.csv(rv$dtu_result$transcript_results, file, row.names = FALSE) }
+    content = function(file) { req(rv$dtu_result); write.csv(rv$dtu_result$transcript_results, file, row.names = FALSE, na = "") }
   )
   output$download_dtu_gene_usage <- downloadHandler(
     filename = function() paste0("DTU_", safe_filename_part(input$dtu_gene %||% "gene"), "_usage_", Sys.Date(), ".csv"),
     content = function(file) {
       req(rv$dtu_result, input$dtu_gene)
-      write.csv(dtu_gene_usage_table(rv$dtu_result, input$dtu_gene), file, row.names = FALSE)
+      write.csv(dtu_gene_usage_table(rv$dtu_result, input$dtu_gene), file, row.names = FALSE, na = "")
     }
   )
   output$download_dtu_usage <- download_plot_server(
@@ -5282,15 +5282,15 @@ server <- function(input, output, session) {
 
   output$download_qc_sample_metrics <- downloadHandler(
     filename = function() paste0("QC_sample_metrics_", Sys.Date(), ".csv"),
-    content = function(file) { req(rv$qc_result); write.csv(rv$qc_result$sample_metrics, file, row.names = FALSE) }
+    content = function(file) { req(rv$qc_result); write.csv(rv$qc_result$sample_metrics, file, row.names = FALSE, na = "") }
   )
   output$download_qc_filtering <- downloadHandler(
     filename = function() paste0("QC_filtering_summary_", Sys.Date(), ".csv"),
-    content = function(file) { req(rv$qc_result); write.csv(rv$qc_result$filtering, file, row.names = FALSE) }
+    content = function(file) { req(rv$qc_result); write.csv(rv$qc_result$filtering, file, row.names = FALSE, na = "") }
   )
   output$download_tx_qc_summary <- downloadHandler(
     filename = function() paste0("transcript_input_QC_", Sys.Date(), ".csv"),
-    content = function(file) { write.csv(transcript_qc_summary(), file, row.names = FALSE) }
+    content = function(file) { write.csv(transcript_qc_summary(), file, row.names = FALSE, na = "") }
   )
 
   observeEvent(input$run_go, {
@@ -7421,7 +7421,7 @@ server <- function(input, output, session) {
 
   output$download_de <- downloadHandler(
     filename = function() paste0("DE_results_", Sys.Date(), ".csv"),
-    content = function(file) write.csv(rv$de, file, row.names = FALSE)
+    content = function(file) write.csv(rv$de, file, row.names = FALSE, na = "")
   )
 
   output$download_all_deseq_comparisons <- downloadHandler(
@@ -7433,7 +7433,7 @@ server <- function(input, output, session) {
         tbl$Control <- rv$deseq_all_comparisons$control
         tbl[, c("Comparison", "Control", setdiff(names(tbl), c("Comparison", "Control"))), drop = FALSE]
       }, rv$deseq_all_comparisons$tables, names(rv$deseq_all_comparisons$tables))
-      write.csv(do.call(rbind, tables), file, row.names = FALSE)
+      write.csv(do.call(rbind, tables), file, row.names = FALSE, na = "")
     }
   )
 
@@ -7467,7 +7467,7 @@ server <- function(input, output, session) {
     filename = function() paste0("normalized_counts_", Sys.Date(), ".csv"),
     content = function(file) {
       req(rv$norm_counts)
-      write.csv(rv$norm_counts, file, row.names = FALSE)
+      write.csv(rv$norm_counts, file, row.names = FALSE, na = "")
     }
   )
   output$download_volcano <- download_plot_server(volcano_reactive, reactive(input$format_volcano), "volcano", reactive(input$de_plot_width), reactive(input$de_plot_height))
@@ -7497,20 +7497,20 @@ server <- function(input, output, session) {
     content = function(file) {
       mat <- expression_heatmap_data()$matrix
       out <- data.frame(gene_id = rownames(mat), mat, check.names = FALSE)
-      write.csv(out, file, row.names = FALSE)
+      write.csv(out, file, row.names = FALSE, na = "")
     }
   )
   output$download_pca <- download_plot_server(pca_reactive, reactive(input$format_pca), "PCA", reactive(input$de_plot_width), reactive(input$de_plot_height))
   output$download_pca_table <- downloadHandler(
     filename = function() paste0("PCA_table_", Sys.Date(), ".csv"),
-    content = function(file) { req(rv$pca); write.csv(rv$pca, file, row.names = FALSE) }
+    content = function(file) { req(rv$pca); write.csv(rv$pca, file, row.names = FALSE, na = "") }
   )
   output$download_go_bubble <- download_plot_server(go_display_plot, reactive(input$format_go_bubble), "GO_bubble", reactive(input$go_plot_width), reactive(input$go_plot_height))
   output$download_go_table <- downloadHandler(
     filename = function() paste0("GO_table_", input$go_direction, "_", input$ontology, "_", Sys.Date(), ".csv"),
     content = function(file) {
       d <- tryCatch(go_display_data(), error = function(e) NULL)
-      req(!is.null(d)); write.csv(d, file, row.names = FALSE)
+      req(!is.null(d)); write.csv(d, file, row.names = FALSE, na = "")
     }
   )
   output$download_go_genes_volcano <- download_plot_server(
@@ -7524,7 +7524,7 @@ server <- function(input, output, session) {
     filename = function() paste0("GO_genes_", input$ontology %||% "BP", "_", Sys.Date(), ".csv"),
     content = function(file) {
       req(rv$go_genes)
-      write.csv(rv$go_genes, file, row.names = FALSE)
+      write.csv(rv$go_genes, file, row.names = FALSE, na = "")
     }
   )
   output$download_msigdb <- download_plot_server(msigdb_plot_reactive, reactive(input$format_msigdb), "MSigDB_Hallmark", reactive(input$msigdb_plot_width), reactive(input$msigdb_plot_height))
@@ -7532,7 +7532,7 @@ server <- function(input, output, session) {
     filename = function() paste0("MSigDB_Hallmark_", input$msigdb_direction, "_", Sys.Date(), ".csv"),
     content = function(file) {
       d <- tryCatch(msigdb_display_data(), error = function(e) NULL)
-      req(!is.null(d)); write.csv(d, file, row.names = FALSE)
+      req(!is.null(d)); write.csv(d, file, row.names = FALSE, na = "")
     }
   )
   output$download_hallmark_genes_volcano <- download_plot_server(
@@ -7546,7 +7546,7 @@ server <- function(input, output, session) {
     filename = function() paste0("Hallmark_genes_", Sys.Date(), ".csv"),
     content = function(file) {
       req(rv$hallmark_genes)
-      write.csv(rv$hallmark_genes, file, row.names = FALSE)
+      write.csv(rv$hallmark_genes, file, row.names = FALSE, na = "")
     }
   )
   output$download_pmn <- download_plot_server(
@@ -7560,7 +7560,7 @@ server <- function(input, output, session) {
     filename = function() paste0("PMN_", gsub("[^A-Za-z0-9]+", "_", input$pmn_cyc_db %||% "Cyc"), "_", input$pmn_direction, "_", Sys.Date(), ".csv"),
     content = function(file) {
       d <- tryCatch(pmn_display_data(), error = function(e) NULL)
-      req(!is.null(d)); write.csv(d, file, row.names = FALSE)
+      req(!is.null(d)); write.csv(d, file, row.names = FALSE, na = "")
     }
   )
   output$download_pmn_pathway_volcano <- download_plot_server(
@@ -7574,17 +7574,17 @@ server <- function(input, output, session) {
     filename = function() paste0("PMN_pathway_genes_", gsub("[^A-Za-z0-9]+", "_", input$pmn_cyc_db %||% "Cyc"), "_", Sys.Date(), ".csv"),
     content = function(file) {
       req(rv$pmn_pathway_genes)
-      write.csv(rv$pmn_pathway_genes, file, row.names = FALSE)
+      write.csv(rv$pmn_pathway_genes, file, row.names = FALSE, na = "")
     }
   )
   output$download_offspring <- downloadHandler(
     filename = function() paste0("GO_offspring_summary_", Sys.Date(), ".csv"),
-    content = function(file) { req(rv$offspring); write.csv(rv$offspring, file, row.names = FALSE) }
+    content = function(file) { req(rv$offspring); write.csv(rv$offspring, file, row.names = FALSE, na = "") }
   )
   output$download_stress <- download_plot_server(stress_plot_reactive, reactive(input$format_stress), "abiotic_stress", reactive(input$go_plot_width), reactive(input$go_plot_height))
   output$download_stress_table <- downloadHandler(
     filename = function() paste0("abiotic_stress_enrichment_", input$stress_dataset, "_", Sys.Date(), ".csv"),
-    content = function(file) { req(rv$stress); write.csv(rv$stress, file, row.names = FALSE) }
+    content = function(file) { req(rv$stress); write.csv(rv$stress, file, row.names = FALSE, na = "") }
   )
   output$download_revigo <- download_plot_server(
     revigo_plot_reactive,
@@ -7602,25 +7602,25 @@ server <- function(input, output, session) {
   )
   output$download_revigo_table <- downloadHandler(
     filename = function() paste0("REVIGO_", rv$revigo_direction %||% "selected", "_table_", input$ontology, "_", Sys.Date(), ".csv"),
-    content = function(file) { req(rv$revigo); write.csv(rv$revigo$table, file, row.names = FALSE) }
+    content = function(file) { req(rv$revigo); write.csv(rv$revigo$table, file, row.names = FALSE, na = "") }
   )
   output$download_te_enrich_up <- download_plot_server(te_enrich_up_reactive, reactive(input$format_te_enrich_up), "TE_Enrichment_upregulated", reactive(input$teg_plot_width), reactive(input$teg_plot_height))
   output$download_te_enrich_down <- download_plot_server(te_enrich_down_reactive, reactive(input$format_te_enrich_down), "TE_Enrichment_downregulated", reactive(input$teg_plot_width), reactive(input$teg_plot_height))
   output$download_te_enrich_all <- download_plot_server(te_enrich_all_reactive, reactive(input$format_te_enrich_all), "TE_Enrichment_all_DE", reactive(input$teg_plot_width), reactive(input$teg_plot_height))
   output$download_te_enrich_table <- downloadHandler(
     filename = function() paste0("TE_Enrichment_table_", Sys.Date(), ".csv"),
-    content = function(file) { req(rv$te_enrichment); write.csv(rv$te_enrichment, file, row.names = FALSE) }
+    content = function(file) { req(rv$te_enrichment); write.csv(rv$te_enrichment, file, row.names = FALSE, na = "") }
   )
   output$download_te_volcano <- download_plot_server(te_volcano_plot_reactive, reactive(input$format_te_volcano), "TEG_volcano", reactive(input$teg_plot_width), reactive(input$teg_plot_height))
   output$download_te_volcano_table <- downloadHandler(
     filename = function() paste0("TEG_volcano_table_", Sys.Date(), ".csv"),
-    content = function(file) { req(rv$te_volcano); write.csv(rv$te_volcano, file, row.names = FALSE) }
+    content = function(file) { req(rv$te_volcano); write.csv(rv$te_volcano, file, row.names = FALSE, na = "") }
   )
   output$download_te_overlap_volcano <- download_plot_server(te_overlap_volcano_reactive, reactive(input$format_te_overlap_volcano), "Overlapped_TE_volcano", reactive(input$teg_plot_width), reactive(input$teg_plot_height))
   output$download_te_overlap_family <- download_plot_server(te_overlap_family_plot_reactive, reactive(input$format_te_overlap_family), "Overlapped_TE_family_counts", reactive(input$teg_plot_width), reactive(input$teg_plot_height))
   output$download_te_overlap_family_table <- downloadHandler(
     filename = function() paste0("Overlapped_TE_family_counts_", Sys.Date(), ".csv"),
-    content = function(file) { req(rv$te_overlap_family_counts); write.csv(rv$te_overlap_family_counts, file, row.names = FALSE) }
+    content = function(file) { req(rv$te_overlap_family_counts); write.csv(rv$te_overlap_family_counts, file, row.names = FALSE, na = "") }
   )
   output$download_te_overlap_enrichment <- download_plot_server(te_overlap_enrichment_plot_reactive, reactive(input$format_te_overlap_enrichment), "Overlapped_TE_family_enrichment", reactive(input$teg_plot_width), reactive(input$teg_plot_height))
   output$download_te_overlap_enrichment_table <- downloadHandler(
@@ -7628,12 +7628,12 @@ server <- function(input, output, session) {
     content = function(file) {
       d <- te_overlap_enrichment_reactive()
       req(!is.null(d), nrow(d) > 0)
-      write.csv(d, file, row.names = FALSE)
+      write.csv(d, file, row.names = FALSE, na = "")
     }
   )
   output$download_te_overlap_table <- downloadHandler(
     filename = function() paste0("Overlapped_TE_genes_", Sys.Date(), ".csv"),
-    content = function(file) { req(rv$te_overlap_table); write.csv(rv$te_overlap_table, file, row.names = FALSE) }
+    content = function(file) { req(rv$te_overlap_table); write.csv(rv$te_overlap_table, file, row.names = FALSE, na = "") }
   )
 
   # ---- Gene Groups ---------------------------------------------------------
@@ -7760,7 +7760,7 @@ server <- function(input, output, session) {
       req(rv$gg_cache, input$gene_group_select)
       d <- rv$gg_cache[[input$gene_group_select]]$data
       req(!is.null(d))
-      write.csv(d, file, row.names = FALSE)
+      write.csv(d, file, row.names = FALSE, na = "")
     }
   )
 
@@ -7960,7 +7960,7 @@ server <- function(input, output, session) {
       keep_cols <- c("gene_id", "hgnc_id", "Gene_Family", "Sub_Family", "Symbol", "log2FoldChange", "pValue", "padj", "DE_class", "short_description")
       d <- d[, intersect(keep_cols, names(d)), drop = FALSE]
       if ("gene_id" %in% names(d)) d <- d[!duplicated(d$gene_id), , drop = FALSE]
-      write.csv(d, file, row.names = FALSE)
+      write.csv(d, file, row.names = FALSE, na = "")
     }
   )
 
@@ -8066,7 +8066,7 @@ server <- function(input, output, session) {
     filename = function() paste0("gene_family_enrichment_", input$gene_family_enrichment_direction %||% "up", "_", Sys.Date(), ".csv"),
     content = function(file) {
       req(rv$gene_family_enrichment)
-      write.csv(rv$gene_family_enrichment, file, row.names = FALSE)
+      write.csv(rv$gene_family_enrichment, file, row.names = FALSE, na = "")
     }
   )
 
@@ -8219,15 +8219,15 @@ server <- function(input, output, session) {
   output$download_gsea_pathway_volcano <- download_plot_server(gsea_pathway_volcano_reactive, reactive(input$format_gsea_pathway_volcano), "GSEA_pathway_volcano", reactive(input$gsea_plot_width), reactive(input$gsea_plot_height))
   output$download_gsea_results <- downloadHandler(
     filename = function() paste0("GSEA_", safe_filename_part(rv$gsea$database %||% "results"), "_", Sys.Date(), ".csv"),
-    content = function(file) { req(rv$gsea); write.csv(gsea_results_for_display(rv$gsea), file, row.names = FALSE) }
+    content = function(file) { req(rv$gsea); write.csv(gsea_results_for_display(rv$gsea), file, row.names = FALSE, na = "") }
   )
   output$download_gsea_leading_edge <- downloadHandler(
     filename = function() paste0("GSEA_leading_edge_", safe_filename_part(input$gsea_pathway %||% "pathway"), "_", Sys.Date(), ".csv"),
-    content = function(file) { req(rv$gsea, input$gsea_pathway); write.csv(gsea_pathway_gene_table(rv$gsea, input$gsea_pathway, TRUE), file, row.names = FALSE) }
+    content = function(file) { req(rv$gsea, input$gsea_pathway); write.csv(gsea_pathway_gene_table(rv$gsea, input$gsea_pathway, TRUE), file, row.names = FALSE, na = "") }
   )
   output$download_gsea_pathway_genes <- downloadHandler(
     filename = function() paste0("GSEA_pathway_genes_", safe_filename_part(input$gsea_pathway %||% "pathway"), "_", Sys.Date(), ".csv"),
-    content = function(file) { req(rv$gsea, input$gsea_pathway); write.csv(gsea_pathway_gene_table(rv$gsea, input$gsea_pathway, FALSE), file, row.names = FALSE) }
+    content = function(file) { req(rv$gsea, input$gsea_pathway); write.csv(gsea_pathway_gene_table(rv$gsea, input$gsea_pathway, FALSE), file, row.names = FALSE, na = "") }
   )
 
   kegg_enrichment_uses_ec <- function() identical(input$kegg_enrichment_source %||% "gene", "ec")
@@ -8416,7 +8416,7 @@ server <- function(input, output, session) {
       paste0("KEGG_", gsub("[^A-Za-z0-9]+", "_", pathway_code), "_significant_genes_", Sys.Date(), ".csv")
     },
     content = function(file) {
-      write.csv(kegg_pathway_modal_display_data(), file, row.names = FALSE)
+      write.csv(kegg_pathway_modal_display_data(), file, row.names = FALSE, na = "")
     }
   )
   
@@ -8446,7 +8446,7 @@ server <- function(input, output, session) {
     filename = function() paste0("KEGG_enrichment_", Sys.Date(), ".csv"),
     content = function(file) {
       req(rv$kegg_enrichment)
-      write.csv(rv$kegg_enrichment, file, row.names = FALSE)
+      write.csv(rv$kegg_enrichment, file, row.names = FALSE, na = "")
     }
   )
   
@@ -8644,7 +8644,7 @@ server <- function(input, output, session) {
     },
     content = function(file) {
       req(rv$pathview_table)
-      write.csv(rv$pathview_table, file, row.names = FALSE)
+      write.csv(rv$pathview_table, file, row.names = FALSE, na = "")
     }
   )
 }

@@ -429,7 +429,7 @@ build_uniprot_description_file <- function(input_data = NULL,
       dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
       safe_source <- gsub("[^A-Za-z0-9_]+", "_", selected_source)
       out_path <- file.path(output_dir, paste0("uniprot_description_taxid_", tax_id, "_", safe_source, "_", Sys.Date(), ".csv"))
-      utils::write.csv(final_df, out_path, row.names = FALSE)
+      utils::write.csv(final_df, out_path, row.names = FALSE, na = "")
       attr(final_df, "path") <- out_path
     }
 
@@ -455,7 +455,7 @@ build_uniprot_description_file <- function(input_data = NULL,
   if (!is.null(output_dir)) {
     dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
     out_path <- file.path(output_dir, paste0("uniprot_description_taxid_", tax_id, "_", Sys.Date(), ".csv"))
-    utils::write.csv(final_df, out_path, row.names = FALSE)
+    utils::write.csv(final_df, out_path, row.names = FALSE, na = "")
     attr(final_df, "path") <- out_path
   }
 

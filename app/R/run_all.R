@@ -23,7 +23,7 @@ run_all_comparison_label <- function(comparison_name = NULL) {
 run_all_write_csv <- function(x, file) {
   if (is.null(x)) stop("No table is available.")
   x <- as.data.frame(x, check.names = FALSE)
-  utils::write.csv(x, file, row.names = FALSE)
+  utils::write.csv(x, file, row.names = FALSE, na = "")
   normalizePath(file, winslash = "/", mustWork = FALSE)
 }
 
@@ -41,7 +41,7 @@ run_all_write_parameters <- function(metadata, file) {
     stringsAsFactors = FALSE,
     check.names = FALSE
   )
-  utils::write.csv(out, file, row.names = FALSE)
+  utils::write.csv(out, file, row.names = FALSE, na = "")
   normalizePath(file, winslash = "/", mustWork = FALSE)
 }
 

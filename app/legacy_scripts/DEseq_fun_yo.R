@@ -97,8 +97,8 @@ deseq_fc <- function(A.B_VS_c, # DE design. <"." for "&" (and)> <"_" for " " (sp
   dir.create(new_path_1, showWarnings = F)
   dir.create(new_path_2, showWarnings = F)
 
-  write.csv(df_merge, paste0(new_path_2, "/all_genes_results_", A.B_VS_c, ".csv"), row.names = FALSE)
-  write.csv(normCounts, paste0(new_path_2, "/norm_counts_", A.B_VS_c, ".csv"), row.names = FALSE)
+  write.csv(df_merge, paste0(new_path_2, "/all_genes_results_", A.B_VS_c, ".csv"), row.names = FALSE, na = "")
+  write.csv(normCounts, paste0(new_path_2, "/norm_counts_", A.B_VS_c, ".csv"), row.names = FALSE, na = "")
 
   # save results summary
   sink(paste0(new_path_2, "/results_summary_", A.B_VS_c, ".txt"))

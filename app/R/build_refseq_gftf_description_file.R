@@ -515,7 +515,7 @@ build_refseq_gtf_description_file <- function(gtf_file,
     } else {
       dir.create(dirname(output_file), showWarnings = FALSE, recursive = TRUE)
     }
-    utils::write.csv(final_df, output_file, row.names = FALSE)
+    utils::write.csv(final_df, output_file, row.names = FALSE, na = "")
     attr(final_df, "path") <- output_file
   }
 
