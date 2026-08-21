@@ -4091,21 +4091,85 @@ genes_matching_go_terms <- function(df, go_terms, go_col = "GO_BP_terms") {
   unique(df$gene_id[hits])
 }
 
+go_offspring_enrichment_stats <- function(category_genes, universe_genes, significant_genes) {
+  universe_genes <- unique(as.character(universe_genes))
+  universe_genes <- universe_genes[!is.na(universe_genes) & nzchar(universe_genes)]
+  category_genes <- intersect(unique(as.character(category_genes)), universe_genes)
+  significant_genes <- intersect(unique(as.character(significant_genes)), universe_genes)
+
+  background_total <- length(universe_genes)
+  background_significant <- length(significant_genes)
+  category_total <- length(category_genes)
+  category_significant <- length(intersect(category_genes, significant_genes))
+  expected <- if (background_total > 0) {
+    category_total * background_significant / background_total
+  } else {
+    NA_real_
+  }
+  fold_enrichment <- if (is.finite(expected) && expected > 0) category_significant / expected else NA_real_
+
+  testable <- background_total > 0 && category_total > 0 && category_total < background_total &&
+    background_significant > 0 && background_significant < background_total
+  fisher_result <- if (testable) {
+    category_not_significant <- category_total - category_significant
+    outside_significant <- background_significant - category_significant
+    outside_not_significant <- background_total - category_total - outside_significant
+    tryCatch(
+      stats::fisher.test(
+        matrix(
+          c(category_significant, category_not_significant,
+            outside_significant, outside_not_significant),
+          nrow = 2,
+          byrow = TRUE,
+          dimnames = list(
+            GO_membership = c("In_category", "Outside_category"),
+            DE_status = c("Significant", "Not_significant")
+          )
+        ),
+        alternative = "greater"
+      ),
+      error = function(e) NULL
+    )
+  } else {
+    NULL
+  }
+
+  data.frame(
+    Background_total = background_total,
+    Background_significant = background_significant,
+    Expected_significant = expected,
+    Fold_enrichment = fold_enrichment,
+    Odds_ratio = if (is.null(fisher_result)) NA_real_ else unname(fisher_result$estimate),
+    P_value = if (is.null(fisher_result)) NA_real_ else fisher_result$p.value,
+    stringsAsFactors = FALSE
+  )
+}
+
 make_go_offspring_summary <- function(de_df, parent_go_ids, alpha = 0.05, lfc_cutoff = 1,
                                       orgdb = "org.At.tair.db", keytype = "TAIR") {
   de_df <- add_go_bp_column(de_df, orgdb = orgdb, keytype = keytype)
   de_df <- classify_de(de_df, alpha = alpha, lfc_cutoff = lfc_cutoff)
   parent_go_ids <- trimws(unlist(strsplit(parent_go_ids, ",|;|\\s+")))
-  parent_go_ids <- parent_go_ids[parent_go_ids != ""]
+  parent_go_ids <- unique(toupper(parent_go_ids[parent_go_ids != ""]))
+  if (!length(parent_go_ids)) stop("Enter at least one parent GO ID.")
+
+  annotated <- !is.na(de_df$GO_BP_terms) & nzchar(trimws(as.character(de_df$GO_BP_terms)))
+  universe_genes <- unique(as.character(de_df$gene_id[annotated]))
+  universe_genes <- universe_genes[!is.na(universe_genes) & nzchar(universe_genes)]
+  if (!length(universe_genes)) stop("No tested genes have usable GO Biological Process annotations.")
+  significant_genes <- unique(as.character(de_df$gene_id[
+    annotated & de_df$DE_class %in% c("up", "down")
+  ]))
+
   rows <- lapply(parent_go_ids, function(go_id) {
     terms <- go_offspring_terms(go_id)
-    genes <- genes_matching_go_terms(de_df, terms)
+    genes <- intersect(genes_matching_go_terms(de_df, terms), universe_genes)
     sub <- de_df[de_df$gene_id %in% genes, , drop = FALSE]
     sig <- sub[sub$DE_class %in% c("up", "down"), , drop = FALSE]
     up_ids <- sort(unique(sig$gene_id[sig$DE_class == "up"]))
     down_ids <- sort(unique(sig$gene_id[sig$DE_class == "down"]))
     sig_ids <- sort(unique(sig$gene_id))
-    data.frame(
+    counts <- data.frame(
       Parent_GO_ID = go_id,
       Category = go_term_title(go_id),
       Offspring_terms = length(terms),
@@ -4119,8 +4183,19 @@ make_go_offspring_summary <- function(de_df, parent_go_ids, alpha = 0.05, lfc_cu
       Percentage = ifelse(length(unique(sub$gene_id)) > 0, paste0(round(100 * length(unique(sig$gene_id)) / length(unique(sub$gene_id)), 2), "%"), "NA"),
       stringsAsFactors = FALSE
     )
+    cbind(
+      counts,
+      go_offspring_enrichment_stats(
+        category_genes = genes,
+        universe_genes = universe_genes,
+        significant_genes = significant_genes
+      )
+    )
   })
-  do.call(rbind, rows)
+  out <- do.call(rbind, rows)
+  out$FDR <- stats::p.adjust(out$P_value, method = "BH")
+  rownames(out) <- NULL
+  out
 }
 
 parse_pmn_pathway_codes <- function(pathway_codes) {

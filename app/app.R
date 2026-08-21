@@ -1471,7 +1471,8 @@ ui <- fluidPage(
                 fluidRow(
                   column(8, uiOutput("parent_go_ids_ui")),
                   column(4, br(), actionButton("run_offspring", "Create offspring summary", class = "btn-primary", style = "width:100%;"))
-                )
+                ),
+                div(class = "muted", "For each parent and its offspring terms, a one-sided Fisher test evaluates enrichment among significant DE genes. The background is all tested genes with usable BP annotations; FDR is adjusted across the entered parent IDs.")
               ),
               fluidRow(
                 column(12,

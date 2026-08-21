@@ -200,7 +200,7 @@ The permanent **Quality Control** tab is populated by a completed DESeq2 run fro
 - Fisher or KS statistic.
 - **GO genes** sub-tab: enter any valid GO ID and view matched loaded DE genes as a volcano plot and table. After GO enrichment, its terms are offered as suggestions but do not restrict manual IDs; exact-ID lookup is independent of the enrichment ontology.
 - REVIGO-like local semantic reduction using `rrvgo`.
-- GO offspring summaries for custom parent GO terms.
+- GO offspring summaries for custom parent GO terms, including one-sided Fisher enrichment among significant DE genes, fold enrichment, odds ratio, raw p-value, and BH FDR across the entered parents. The background is all tested genes with usable BP annotations.
 - Abiotic stress (plants) GO enrichment.
 
 GO display cutoff, ontology, and top-N controls appear in the sidebar only while on the GO tab.
