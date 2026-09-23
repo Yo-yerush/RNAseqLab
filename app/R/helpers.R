@@ -1883,8 +1883,48 @@ make_dtu_usage_long <- function(transcript_data) {
   do.call(rbind, rows)
 }
 
+audit_dtu_feature_filters <- function(counts_mat, map, min_feature_count = 10,
+                                      min_feature_prop = 0.05, min_samples = 2) {
+  counts_mat <- as.matrix(counts_mat)
+  storage.mode(counts_mat) <- "numeric"
+  counts_mat[!is.finite(counts_mat) | counts_mat < 0] <- 0
+  map <- as.data.frame(map, stringsAsFactors = FALSE)
+  if (nrow(map) != nrow(counts_mat)) stop("Transcript mapping does not match the count matrix.")
+  out <- data.frame(
+    gene_id = as.character(map$GENEID),
+    transcript_id = as.character(map$TXNAME),
+    passed_dtu_filter = FALSE,
+    stringsAsFactors = FALSE
+  )
+  min_samples <- max(1L, as.integer(min_samples))
+  gene_rows <- split(seq_len(nrow(map)), as.character(map$GENEID))
+  for (idx in gene_rows) {
+    if (length(idx) < 2L) next
+    gene_counts <- counts_mat[idx, , drop = FALSE]
+    gene_expression_ok <- sum(colSums(gene_counts, na.rm = TRUE) >= min_feature_count) >= min_samples
+    if (!gene_expression_ok) next
+
+    positive <- rowSums(gene_counts > 0, na.rm = TRUE) > 0
+    count_ok <- rowSums(gene_counts >= min_feature_count, na.rm = TRUE) >= min_samples
+    candidates <- which(positive & count_ok)
+    if (!length(candidates)) next
+    candidate_counts <- gene_counts[candidates, , drop = FALSE]
+    usable_samples <- colSums(candidate_counts, na.rm = TRUE) > 0 & !is.na(candidate_counts[1, ])
+    if (sum(usable_samples) < min_samples) next
+    proportions <- sweep(
+      candidate_counts[, usable_samples, drop = FALSE],
+      2,
+      colSums(candidate_counts[, usable_samples, drop = FALSE], na.rm = TRUE),
+      "/"
+    )
+    prop_ok <- rowSums(proportions >= min_feature_prop, na.rm = TRUE) >= min_samples
+    out$passed_dtu_filter[idx[candidates[prop_ok]]] <- TRUE
+  }
+  out
+}
+
 run_dtu_analysis <- function(transcript_data, de_df = NULL, norm_counts = NULL,
-                             min_feature_count = 10, min_feature_prop = 0.1,
+                             min_feature_count = 10, min_feature_prop = 0.05,
                              min_samples = 2, fdr_cutoff = 0.05,
                              min_delta_usage = 0.1, dge_alpha = 0.05,
                              dge_lfc_cutoff = 1, seed = 123) {
@@ -1903,6 +1943,8 @@ run_dtu_analysis <- function(transcript_data, de_df = NULL, norm_counts = NULL,
   keep <- !is.na(map$TXNAME) & !is.na(map$GENEID) & nzchar(map$TXNAME) & nzchar(map$GENEID)
   counts_mat <- counts_mat[keep, , drop = FALSE]
   map <- map[keep, , drop = FALSE]
+  all_mapped_counts <- counts_mat
+  all_mapped_map <- map
   multi_gene <- names(which(table(map$GENEID) >= 2))
   keep <- map$GENEID %in% multi_gene
   counts_mat <- counts_mat[keep, , drop = FALSE]
@@ -1920,6 +1962,13 @@ run_dtu_analysis <- function(transcript_data, de_df = NULL, norm_counts = NULL,
   group_n <- table(cd$condition)
   if (any(group_n[c(control, treatment)] < 2)) stop("DTU requires at least two biological replicates in each condition.")
   min_samples <- max(1L, min(as.integer(min_samples), min(group_n[c(control, treatment)])))
+  filter_status <- audit_dtu_feature_filters(
+    counts_mat = all_mapped_counts,
+    map = all_mapped_map,
+    min_feature_count = min_feature_count,
+    min_feature_prop = min_feature_prop,
+    min_samples = min_samples
+  )
 
   count_df <- data.frame(
     gene_id = map$GENEID,
@@ -2155,6 +2204,7 @@ run_dtu_analysis <- function(transcript_data, de_df = NULL, norm_counts = NULL,
   list(
     gene_results = gene_summary,
     transcript_results = tx_out,
+    filter_status = filter_status,
     usage_long = usage_long,
     gene_expression_long = gene_expression_long,
     treatment = treatment,
@@ -2166,21 +2216,258 @@ run_dtu_analysis <- function(transcript_data, de_df = NULL, norm_counts = NULL,
   )
 }
 
-dtu_gene_usage_table <- function(dtu_result, gene_id) {
-  d <- dtu_result$transcript_results
+make_transcript_viewer_data <- function(transcript_data, dtu_result = NULL,
+                                        de_df = NULL, norm_counts = NULL) {
+  if (is.null(transcript_data) || is.null(transcript_data$tx2gene)) {
+    stop("Transcript-level quantification and tx2gene data are required.")
+  }
+
+  usage_long <- make_dtu_usage_long(transcript_data)
+  if (!nrow(usage_long)) stop("No mapped transcript-level values are available.")
+  control <- as.character(transcript_data$control %||% "")
+  treatment <- as.character(transcript_data$treatment %||% "")
+
+  mean_usage <- stats::aggregate(
+    usage ~ gene_id + transcript_id + condition,
+    usage_long,
+    mean,
+    na.rm = TRUE
+  )
+  control_usage <- mean_usage[
+    mean_usage$condition == control,
+    c("gene_id", "transcript_id", "usage"),
+    drop = FALSE
+  ]
+  treatment_usage <- mean_usage[
+    mean_usage$condition == treatment,
+    c("gene_id", "transcript_id", "usage"),
+    drop = FALSE
+  ]
+  names(control_usage)[3] <- "control_usage"
+  names(treatment_usage)[3] <- "treatment_usage"
+  all_transcripts <- unique(usage_long[, c("gene_id", "transcript_id"), drop = FALSE])
+  transcript_results <- merge(
+    all_transcripts,
+    control_usage,
+    by = c("gene_id", "transcript_id"),
+    all.x = TRUE,
+    sort = FALSE
+  )
+  transcript_results <- merge(
+    transcript_results,
+    treatment_usage,
+    by = c("gene_id", "transcript_id"),
+    all.x = TRUE,
+    sort = FALSE
+  )
+  transcript_results$control_usage[is.na(transcript_results$control_usage)] <- 0
+  transcript_results$treatment_usage[is.na(transcript_results$treatment_usage)] <- 0
+  transcript_results$delta_usage <- transcript_results$treatment_usage - transcript_results$control_usage
+
+  filter_status <- if (!is.null(dtu_result)) dtu_result$filter_status else NULL
+  if (!is.null(filter_status) && nrow(filter_status)) {
+    filter_status <- unique(as.data.frame(filter_status, stringsAsFactors = FALSE))
+    transcript_results <- merge(
+      transcript_results,
+      filter_status[, intersect(c("gene_id", "transcript_id", "passed_dtu_filter"), names(filter_status)), drop = FALSE],
+      by = c("gene_id", "transcript_id"),
+      all.x = TRUE,
+      sort = FALSE
+    )
+  } else {
+    transcript_results$passed_dtu_filter <- NA
+  }
+
+  tested <- if (!is.null(dtu_result)) dtu_result$transcript_results else NULL
+  if (!is.null(tested) && nrow(tested)) {
+    tested <- as.data.frame(tested, stringsAsFactors = FALSE)
+    statistic_columns <- intersect(
+      c("gene_id", "transcript_id", "pvalue", "gene_FDR", "transcript_OFDR", "DTU_transcript"),
+      names(tested)
+    )
+    tested <- tested[!duplicated(tested[, c("gene_id", "transcript_id"), drop = FALSE]), statistic_columns, drop = FALSE]
+    transcript_results <- merge(
+      transcript_results,
+      tested,
+      by = c("gene_id", "transcript_id"),
+      all.x = TRUE,
+      sort = FALSE
+    )
+  }
+  for (column in c("pvalue", "gene_FDR", "transcript_OFDR")) {
+    if (!column %in% names(transcript_results)) transcript_results[[column]] <- NA_real_
+  }
+  if (!"DTU_transcript" %in% names(transcript_results)) transcript_results$DTU_transcript <- NA
+  transcript_results$DTU_tested <- is.finite(transcript_results$pvalue) &
+    is.finite(transcript_results$gene_FDR)
+
+  annotation_columns <- character()
+  if (!is.null(de_df) && nrow(de_df)) {
+    annotations <- as.data.frame(de_df, stringsAsFactors = FALSE)
+    annotations$.viewer_gene_key <- gene_join_key(annotations$gene_id)
+    annotation_columns <- intersect(c("Symbol", "Short_description"), names(annotations))
+    annotations <- annotations[
+      !duplicated(annotations$.viewer_gene_key),
+      c(".viewer_gene_key", annotation_columns),
+      drop = FALSE
+    ]
+    transcript_results$.viewer_gene_key <- gene_join_key(transcript_results$gene_id)
+    transcript_results <- merge(
+      transcript_results,
+      annotations,
+      by = ".viewer_gene_key",
+      all.x = TRUE,
+      sort = FALSE
+    )
+    transcript_results$.viewer_gene_key <- NULL
+  }
+
+  mapped_counts <- table(transcript_results$gene_id)
+  gene_summary <- data.frame(
+    gene_id = names(mapped_counts),
+    mapped_transcripts = as.integer(mapped_counts),
+    stringsAsFactors = FALSE
+  )
+  passed_counts <- stats::setNames(integer(nrow(gene_summary)), gene_summary$gene_id)
+  if (any(!is.na(transcript_results$passed_dtu_filter))) {
+    passed <- stats::aggregate(
+      passed_dtu_filter ~ gene_id,
+      transcript_results,
+      function(x) sum(x %in% TRUE, na.rm = TRUE)
+    )
+    passed_counts[passed$gene_id] <- passed$passed_dtu_filter
+  } else {
+    passed_counts[] <- NA_integer_
+  }
+  tested_counts <- stats::setNames(integer(nrow(gene_summary)), gene_summary$gene_id)
+  tested_rows <- transcript_results[transcript_results$DTU_tested %in% TRUE, , drop = FALSE]
+  if (nrow(tested_rows)) {
+    tested_table <- table(tested_rows$gene_id)
+    tested_counts[names(tested_table)] <- as.integer(tested_table)
+  }
+  gene_summary$filter_passed_transcripts <- as.integer(passed_counts[gene_summary$gene_id])
+  gene_summary$dtu_tested_transcripts <- as.integer(tested_counts[gene_summary$gene_id])
+
+  if (!is.null(dtu_result) && !is.null(dtu_result$gene_results) && nrow(dtu_result$gene_results)) {
+    gene_stats <- as.data.frame(dtu_result$gene_results, stringsAsFactors = FALSE)
+    keep_stats <- intersect(
+      c("gene_id", "gene_FDR", "DTU", "isoform_switch", "Analysis_class", "max_abs_delta_usage"),
+      names(gene_stats)
+    )
+    gene_stats <- gene_stats[!duplicated(gene_stats$gene_id), keep_stats, drop = FALSE]
+    gene_summary <- merge(gene_summary, gene_stats, by = "gene_id", all.x = TRUE, sort = FALSE)
+  }
+  for (column in c("gene_FDR", "max_abs_delta_usage")) {
+    if (!column %in% names(gene_summary)) gene_summary[[column]] <- NA_real_
+  }
+  for (column in c("DTU", "isoform_switch")) {
+    if (!column %in% names(gene_summary)) gene_summary[[column]] <- NA
+  }
+  if (!"Analysis_class" %in% names(gene_summary)) gene_summary$Analysis_class <- NA_character_
+  if (length(annotation_columns)) {
+    gene_annotations <- transcript_results[
+      !duplicated(transcript_results$gene_id),
+      c("gene_id", annotation_columns),
+      drop = FALSE
+    ]
+    gene_summary <- merge(gene_summary, gene_annotations, by = "gene_id", all.x = TRUE, sort = FALSE)
+  }
+
+  gene_expression_long <- NULL
+  if (!is.null(norm_counts) && nrow(norm_counts)) {
+    nc <- as.data.frame(norm_counts, stringsAsFactors = FALSE)
+    cd <- as.data.frame(transcript_data$coldata, stringsAsFactors = FALSE)
+    viewer_genes <- unique(gene_summary$gene_id)
+    hit <- match(gene_join_key(viewer_genes), gene_join_key(nc$gene_id))
+    nc <- nc[hit[!is.na(hit)], , drop = FALSE]
+    if (nrow(nc)) {
+      sample_cols <- intersect(cd$sample_id, names(nc))
+      gene_expression_long <- do.call(rbind, lapply(seq_len(nrow(nc)), function(i) {
+        data.frame(
+          gene_id = nc$gene_id[i],
+          sample_id = sample_cols,
+          sample_label = cd$sample_label[match(sample_cols, cd$sample_id)] %||% sample_cols,
+          condition = as.character(cd$condition[match(sample_cols, cd$sample_id)]),
+          normalized_expression = as.numeric(nc[i, sample_cols, drop = TRUE]),
+          stringsAsFactors = FALSE
+        )
+      }))
+    }
+  }
+
+  transcript_results <- transcript_results[
+    match(
+      paste(all_transcripts$gene_id, all_transcripts$transcript_id, sep = "\r"),
+      paste(transcript_results$gene_id, transcript_results$transcript_id, sep = "\r")
+    ),
+    ,
+    drop = FALSE
+  ]
+  rownames(transcript_results) <- NULL
+  rownames(gene_summary) <- NULL
+  list(
+    transcript_results = transcript_results,
+    gene_summary = gene_summary,
+    usage_long = usage_long,
+    gene_expression_long = gene_expression_long,
+    control = control,
+    treatment = treatment,
+    dtu_available = !is.null(dtu_result)
+  )
+}
+
+transcript_viewer_gene_status <- function(viewer_data, gene_id) {
+  d <- viewer_data$gene_summary
+  d <- d[d$gene_id == gene_id, , drop = FALSE]
+  if (!nrow(d)) return("No mapped transcripts are available for this gene.")
+  mapped <- as.integer(d$mapped_transcripts[1])
+  if (mapped < 2L) return(paste0("Mapped transcripts: ", mapped, " — DTU not applicable"))
+  if (!isTRUE(viewer_data$dtu_available)) {
+    return(paste0("Mapped transcripts: ", mapped, " — DTU analysis not run"))
+  }
+  filter_passed <- as.integer(d$filter_passed_transcripts[1])
+  formally_tested <- as.integer(d$dtu_tested_transcripts[1])
+  if (!is.na(formally_tested) && formally_tested >= 2L && is.finite(d$gene_FDR[1])) {
+    return(paste0(
+      "Mapped transcripts: ", mapped,
+      "; DTU-tested transcripts: ", formally_tested,
+      " — DTU FDR = ", format.pval(d$gene_FDR[1], digits = 3, eps = 1e-04)
+    ))
+  }
+  if (!is.na(filter_passed) && filter_passed < 2L) {
+    return(paste0(
+      "Mapped transcripts: ", mapped,
+      "; DTU-tested transcripts: ", filter_passed,
+      " — DTU not tested after filtering"
+    ))
+  }
+  if (is.na(formally_tested) || formally_tested < 2L || !is.finite(d$gene_FDR[1])) {
+    return(paste0(
+      "Mapped transcripts: ", mapped,
+      "; DTU-tested transcripts: ", ifelse(is.na(formally_tested), 0L, formally_tested),
+      " — DTU not tested because fewer than two valid transcript tests remained"
+    ))
+  }
+  paste0("Mapped transcripts: ", mapped, " — DTU result unavailable")
+}
+
+dtu_gene_usage_table <- function(viewer_data, gene_id) {
+  d <- viewer_data$transcript_results
   d <- d[d$gene_id == gene_id, , drop = FALSE]
   if (!nrow(d)) return(data.frame())
-  keep <- intersect(c("gene_id", "transcript_id", "control_usage", "treatment_usage",
-                      "delta_usage", "pvalue", "gene_FDR", "transcript_OFDR", "DTU_transcript"), names(d))
+  keep <- intersect(c("gene_id", "transcript_id", "Symbol", "Short_description",
+                      "control_usage", "treatment_usage", "delta_usage",
+                      "passed_dtu_filter", "DTU_tested", "pvalue", "gene_FDR",
+                      "transcript_OFDR", "DTU_transcript"), names(d))
   d[, keep, drop = FALSE]
 }
 
-make_dtu_usage_plot <- function(dtu_result, gene_id, plot_theme = "classic", font_family = "serif",
+make_dtu_usage_plot <- function(viewer_data, gene_id, plot_theme = "classic", font_family = "serif",
                                 color_palette = "default") {
-  d <- dtu_result$usage_long[dtu_result$usage_long$gene_id == gene_id, , drop = FALSE]
+  d <- viewer_data$usage_long[viewer_data$usage_long$gene_id == gene_id, , drop = FALSE]
   if (!nrow(d)) stop("No transcript-usage data are available for the selected gene.")
-  result_levels <- dtu_result$transcript_results$transcript_id[
-    dtu_result$transcript_results$gene_id == gene_id
+  result_levels <- viewer_data$transcript_results$transcript_id[
+    viewer_data$transcript_results$gene_id == gene_id
   ]
   transcript_levels <- unique(c(as.character(result_levels), as.character(d$transcript_id)))
   transcript_levels <- transcript_levels[!is.na(transcript_levels) & nzchar(transcript_levels)]
@@ -2201,17 +2488,17 @@ make_dtu_usage_plot <- function(dtu_result, gene_id, plot_theme = "classic", fon
   p
 }
 
-make_dtu_switch_plot <- function(dtu_result, gene_id, plot_theme = "classic", font_family = "serif",
+make_dtu_switch_plot <- function(viewer_data, gene_id, plot_theme = "classic", font_family = "serif",
                                  color_palette = "default") {
-  d <- dtu_gene_usage_table(dtu_result, gene_id)
-  if (!nrow(d)) stop("No DTU result is available for the selected gene.")
+  d <- dtu_gene_usage_table(viewer_data, gene_id)
+  if (!nrow(d)) stop("No transcript-usage data are available for the selected gene.")
   transcript_levels <- unique(as.character(d$transcript_id))
   long <- rbind(
-    data.frame(transcript_id = d$transcript_id, condition = dtu_result$control, usage = d$control_usage),
-    data.frame(transcript_id = d$transcript_id, condition = dtu_result$treatment, usage = d$treatment_usage)
+    data.frame(transcript_id = d$transcript_id, condition = viewer_data$control, usage = d$control_usage),
+    data.frame(transcript_id = d$transcript_id, condition = viewer_data$treatment, usage = d$treatment_usage)
   )
   long$transcript_id <- factor(as.character(long$transcript_id), levels = transcript_levels)
-  long$condition <- factor(long$condition, levels = c(dtu_result$control, dtu_result$treatment))
+  long$condition <- factor(long$condition, levels = c(viewer_data$control, viewer_data$treatment))
   p <- ggplot2::ggplot(long, ggplot2::aes(condition, usage, group = transcript_id, color = transcript_id)) +
     ggplot2::geom_line(linewidth = 0.8, alpha = 0.8) +
     ggplot2::geom_point(size = 2.5) +
@@ -2226,15 +2513,15 @@ make_dtu_switch_plot <- function(dtu_result, gene_id, plot_theme = "classic", fo
   p
 }
 
-make_dtu_gene_expression_plot <- function(dtu_result, gene_id, plot_theme = "classic", font_family = "serif",
+make_dtu_gene_expression_plot <- function(viewer_data, gene_id, plot_theme = "classic", font_family = "serif",
                                           color_trnt = "#ac783e", color_ctrl = "#505050",
                                           point_size = 2.4, point_alpha = 0.88,
                                           jitter_width = 0.12, box_width = 0.55,
                                           box_alpha = 0.28) {
-  d <- dtu_result$gene_expression_long
+  d <- viewer_data$gene_expression_long
   d <- d[d$gene_id == gene_id, , drop = FALSE]
   if (!nrow(d)) stop("Normalized gene-expression values are unavailable for the selected gene.")
-  condition_levels <- c(dtu_result$control, dtu_result$treatment)
+  condition_levels <- c(viewer_data$control, viewer_data$treatment)
   condition_levels <- unique(condition_levels[!is.na(condition_levels) & nzchar(condition_levels)])
   d$condition <- factor(as.character(d$condition), levels = condition_levels)
   cols <- c(color_ctrl, color_trnt)

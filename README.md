@@ -16,7 +16,7 @@ Plant's metabolism and molecular genetic lab, Prof. Rachel Amir group
 
 
 **Cite:**  
-Yerushalmy, Y., & Amir, R. (2026). *RNAseqLab: An Integrated Platform for RNA-seq Analysis and Functional Interpretation*, (Version 0.9.3). Zenodo. [doi.org/10.5281/zenodo.21798390](https://doi.org/10.5281/zenodo.21798390)
+Yerushalmy, Y., & Amir, R. (2026). *RNAseqLab: An Integrated Platform for RNA-seq Analysis and Functional Interpretation*, (Version 0.9.4). Zenodo. [doi.org/10.5281/zenodo.21798390](https://doi.org/10.5281/zenodo.21798390)
 
 ## How To Run On Windows
 
@@ -109,19 +109,19 @@ The same transcript quantification supports two complementary analyses:
 The DTU workflow:
 
 - Requires a valid tx2gene mapping and at least two biological replicates per condition; three or more replicates are strongly preferred.
-- Uses transcript-level count-scale abundance imported with tximport and filters low-count or low-usage transcripts before testing.
+- Uses transcript-level count-scale abundance imported with tximport and filters low-count or low-usage transcripts before testing. The default minimum transcript usage is 0.05 and remains user-adjustable.
 - A transcript can pass the filter by being sufficiently expressed in the required number of samples from either condition, so condition-specific isoforms can be retained even when nearly absent from the other condition.
 - Genes with fewer than two transcripts remaining after filtering are excluded because within-gene usage and stageR DTU correction require at least two testable isoforms.
 - Uses DRIMSeq to test changes in transcript proportions within a gene.
 - Uses stageR for gene-level screening followed by transcript-level confirmation and overall false-discovery-rate control.
-- Reports control usage, treatment usage, delta usage, raw p-values, gene FDR, transcript stage-wise adjusted p-values, and DGE/DTU classification. Gene symbols and short descriptions are included in gene- and transcript-level tables when available from the current annotation.
-- DRIMSeq and stageR run synchronously. Tables and plots appear only after the complete analysis finishes; large transcript datasets can take substantial time and memory.
+- Formal DTU result tables report control usage, treatment usage, delta usage, raw p-values, gene FDR, transcript stage-wise adjusted p-values, and DGE/DTU classification. Gene symbols and short descriptions are included when available from the current annotation.
+- DRIMSeq and stageR run synchronously. Formal DTU tables appear only after the complete analysis finishes; large transcript datasets can take substantial time and memory.
 
 The tab contains:
 
 - **Overview:** numbers of tested genes/transcripts, significant DTU genes, candidate switches, and DGE/DTU classification counts.
 - **DTU results:** downloadable gene- and transcript-level result tables.
-- **Gene viewer:** searchable gene selector, replicate-level stacked usage plot, mean isoform-usage switch plot, total normalized gene-expression boxplot, and transcript-usage table.
+- **Gene viewer:** uses every mapped and quantified transcript independently of DTU filtering. Single-transcript genes and genes excluded after filtering remain searchable and retain their replicate-level usage, mean usage, total normalized gene expression, and transcript table. DTU statistics are joined when available and remain `NA` for untested transcripts; a status line reports mapped transcripts, filter/test eligibility, and gene-level DTU FDR or why DTU was not applicable/performed.
 - **DGE vs DTU:** comparison of gene-level DESeq2 evidence with gene-level DTU evidence.
 
 A candidate **isoform switch** is defined conservatively as a gene that passes the selected DTU FDR, changes its dominant transcript between control and treatment, and has at least the selected minimum absolute change in transcript usage. DTU is broader than isoform switching, so significant DTU genes do not necessarily receive the switch label.

@@ -603,7 +603,7 @@ transcript_isoform_tab_ui <- function() {
     wellPanel(
       fluidRow(
         column(2, numericInput("dtu_min_count", "Minimum transcript count", value = 10, min = 0, step = 1)),
-        column(2, numericInput("dtu_min_prop", "Minimum transcript usage", value = 0.10, min = 0, max = 1, step = 0.01)),
+        column(2, numericInput("dtu_min_prop", "Minimum transcript usage", value = 0.05, min = 0, max = 1, step = 0.01)),
         column(2, numericInput("dtu_min_samples", "Minimum samples", value = 2, min = 1, step = 1)),
         column(2, numericInput("dtu_fdr", "DTU FDR cutoff", value = 0.05, min = 0.001, max = 1, step = 0.01)),
         column(2, numericInput("dtu_min_delta", "Minimum |delta usage|", value = 0.10, min = 0, max = 1, step = 0.01)),
@@ -632,6 +632,7 @@ transcript_isoform_tab_ui <- function() {
       tabPanel(
         "Gene viewer",
         uiOutput("dtu_gene_selector_ui"),
+        uiOutput("dtu_gene_status_ui"),
         fluidRow(
           column(
             9,
@@ -729,7 +730,8 @@ transcript_isoform_tab_ui <- function() {
           )
         ),
         tags$hr(),
-        h4("Transcript usage table"),
+        h4("All quantified transcript usage"),
+        div(class = "muted", "Transcripts excluded from formal DTU remain in this table; their DTU p-values and FDR values are NA."),
         DTOutput("dtu_gene_usage_table"),
         div(class = "download-row", downloadButton("download_dtu_gene_usage", "Download selected-gene table"))
       ),
@@ -2012,7 +2014,7 @@ ui <- fluidPage(
                   strong("Gene Set Enrichment (GSEA): "),
                   "Runs preranked ", code("fgseaMultilevel"), " over all tested genes, so the input must not be restricted to significant genes. Choose GO Biological Process, KEGG, Hallmark, PMN, an uploaded GMT file, or TAIR10 transposable-element genes grouped by TE superfamily when Arabidopsis (tax ID 3702) is selected. GO, KEGG, Hallmark, and PMN organism/database settings mirror their corresponding tabs. Rank by the DESeq2 statistic when available (recommended), signed ", code("-log10(pValue)"), ", or ", code("log2FoldChange"), ". Minimum and maximum set sizes control which gene sets are tested. Results include NES and FDR, an NES dotplot, enrichment curve, leading-edge genes, and a pathway-gene table. The Pathway genes volcano shows only genes in the selected pathway, without an all-gene background, and classifies them using the current adjusted-p-value and log2FC thresholds."
                 ),
-                tags$li(strong("Transcript / Isoform Analysis: "), "A permanent main tab immediately before Run All. Its title uses the normal theme color for RSEM transcript/isoform mode, Salmon, or Kallisto and is light gray for inputs without transcript-level data. Transcript input QC is shown under the main Quality Control (QC) tab. After a successful transcript-level DESeq2 import with a valid tx2gene mapping, the retained transcript matrix is tested separately with DRIMSeq and stageR while the existing gene-level DGE analysis remains available. Low-count or low-usage transcripts are filtered before modeling, and genes with fewer than two remaining testable isoforms are excluded because DTU correction requires multiple transcripts per gene. Results appear only after the full synchronous run completes and include annotated gene- and transcript-level tables, within-gene usage by replicate, mean usage changes, total gene expression, DGE-versus-DTU classification, and conservative candidate isoform switches based on significant DTU, a dominant-transcript change, and the selected minimum absolute usage change. In the Gene viewer, one palette selector keeps transcript colors consistent across both isoform-usage plots, while the total gene-expression boxplot has controls for dimensions, treatment/control colors, points, jitter, and box width. The DGE vs DTU sub-tab also provides a right-side color-set selector. At least two biological replicates per condition are required; three or more are strongly preferred."),
+                tags$li(strong("Transcript / Isoform Analysis: "), "A permanent main tab immediately before Run All. Its title uses the normal theme color for RSEM transcript/isoform mode, Salmon, or Kallisto and is light gray for inputs without transcript-level data. Transcript input QC is shown under the main Quality Control (QC) tab. After a successful transcript-level DESeq2 import with a valid tx2gene mapping, the retained transcript matrix is tested separately with DRIMSeq and stageR while the existing gene-level DGE analysis remains available. The default minimum transcript usage is 0.05 and remains adjustable. Low-count or low-usage transcripts are filtered before formal modeling, and genes with fewer than two remaining testable isoforms are excluded because DTU correction requires multiple transcripts per gene. The Gene viewer is independent of this filter: every mapped/quantified transcript remains searchable and visible, including single-transcript genes, with unavailable DTU statistics shown as NA and a status explaining whether DTU was applicable, excluded after filtering, or formally tested. Formal result tables remain tested-only and appear after the synchronous run completes. The viewer includes within-gene usage by replicate, mean usage changes, total gene expression, and a full transcript-usage table. One palette selector keeps transcript colors consistent across both usage plots, while the gene-expression boxplot has controls for dimensions, treatment/control colors, points, jitter, and box width. The DGE vs DTU sub-tab also provides a right-side color-set selector. At least two biological replicates per condition are required; three or more are strongly preferred."),
                 tags$li(strong("PMN analysis: "), "Runs Plant Metabolic Network pathway enrichment for plant Cyc databases such as AraCyc, OryzaCyc, CornCyc, and TomatoCyc. The app auto-selects a PMN database when the selected organism is mapped; otherwise select or type a Cyc database manually."),
                 tags$li(strong("MSigDB/Hallmark: "), "Runs Hallmark over-representation analysis with ", code("msigdbr"), ". The run button appears only for species available in MSigDB."),
                 tags$li(strong("TE analysis: "), "Arabidopsis-only TE workflows use TAIR10 TE metadata and TAIR gene ranges. The TEG tabs run TE superfamily enrichment and TEG volcano plots. The Overlapped TEs tab finds DE genes with nearby or gene-body TE overlaps, shows an overlapped-gene volcano, TE family counts, and Fisher-test TE family enrichment using either all TAIR10 TEs or region-aware TEs as background."),
@@ -3934,7 +3936,7 @@ server <- function(input, output, session) {
           de_df = rv$de,
           norm_counts = rv$norm_counts,
           min_feature_count = input$dtu_min_count %||% 10,
-          min_feature_prop = input$dtu_min_prop %||% 0.1,
+          min_feature_prop = input$dtu_min_prop %||% 0.05,
           min_samples = input$dtu_min_samples %||% 2,
           fdr_cutoff = input$dtu_fdr %||% 0.05,
           min_delta_usage = input$dtu_min_delta %||% 0.1,
@@ -3999,32 +4001,66 @@ server <- function(input, output, session) {
     tbl
   })
 
+  transcript_viewer_data_reactive <- reactive({
+    req(rv$transcript_data)
+    make_transcript_viewer_data(
+      transcript_data = rv$transcript_data,
+      dtu_result = rv$dtu_result,
+      de_df = rv$de,
+      norm_counts = rv$norm_counts
+    )
+  })
+
   output$dtu_gene_selector_ui <- renderUI({
-    if (is.null(rv$dtu_result) || !nrow(rv$dtu_result$gene_results)) {
-      return(div(class = "muted", "Run DTU analysis to select a gene."))
+    if (is.null(rv$transcript_data)) {
+      return(div(class = "muted", "Load transcript-level quantification to select a gene."))
     }
-    d <- rv$dtu_result$gene_results
-    ord <- order(!d$isoform_switch, !d$DTU, d$gene_FDR, -d$max_abs_delta_usage, na.last = TRUE)
+    d <- transcript_viewer_data_reactive()$gene_summary
+    if (!nrow(d)) return(div(class = "muted", "No mapped transcript genes are available."))
+    ord <- order(
+      !(d$isoform_switch %in% TRUE),
+      !(d$DTU %in% TRUE),
+      d$gene_FDR,
+      -d$mapped_transcripts,
+      na.last = TRUE
+    )
     d <- d[ord, , drop = FALSE]
     symbol <- if ("Symbol" %in% names(d)) as.character(d$Symbol) else rep("", nrow(d))
     symbol[is.na(symbol)] <- ""
-    labels <- ifelse(
-      nzchar(symbol),
-      paste0(d$gene_id, " (", symbol, ") | ", d$Analysis_class),
-      paste0(d$gene_id, " | ", d$Analysis_class)
+    labels <- ifelse(nzchar(symbol), paste0(d$gene_id, " (", symbol, ")"), d$gene_id)
+    analysis_label <- as.character(d$Analysis_class)
+    missing_analysis_label <- is.na(analysis_label) | !nzchar(analysis_label)
+    fallback_analysis_label <- ifelse(
+      d$mapped_transcripts < 2,
+      "DTU not applicable",
+      ifelse(isTRUE(transcript_viewer_data_reactive()$dtu_available), "DTU not tested", "DTU analysis not run")
     )
+    analysis_label[missing_analysis_label] <- fallback_analysis_label[missing_analysis_label]
+    labels <- paste0(labels, " | ", analysis_label)
+    current_gene <- isolate(input$dtu_gene)
+    selected_gene <- if (!is.null(current_gene) && current_gene %in% d$gene_id) current_gene else d$gene_id[1]
     selectizeInput(
       "dtu_gene", "Selected gene",
       choices = stats::setNames(d$gene_id, labels),
-      selected = d$gene_id[1],
+      selected = selected_gene,
       options = list(placeholder = "Search gene ID or symbol")
     )
   })
 
+  output$dtu_gene_status_ui <- renderUI({
+    req(input$dtu_gene)
+    status <- transcript_viewer_gene_status(transcript_viewer_data_reactive(), input$dtu_gene)
+    div(
+      class = "alert alert-info",
+      style = "padding: 8px; margin-top: 4px; margin-bottom: 12px;",
+      status
+    )
+  })
+
   dtu_usage_plot_reactive <- reactive({
-    req(rv$dtu_result, input$dtu_gene)
+    req(rv$transcript_data, input$dtu_gene)
     make_dtu_usage_plot(
-      rv$dtu_result,
+      transcript_viewer_data_reactive(),
       input$dtu_gene,
       plot_theme = input$plot_theme %||% "classic",
       font_family = input$plot_font_family %||% "serif",
@@ -4032,9 +4068,9 @@ server <- function(input, output, session) {
     )
   })
   dtu_switch_plot_reactive <- reactive({
-    req(rv$dtu_result, input$dtu_gene)
+    req(rv$transcript_data, input$dtu_gene)
     make_dtu_switch_plot(
-      rv$dtu_result,
+      transcript_viewer_data_reactive(),
       input$dtu_gene,
       plot_theme = input$plot_theme %||% "classic",
       font_family = input$plot_font_family %||% "serif",
@@ -4042,9 +4078,9 @@ server <- function(input, output, session) {
     )
   })
   dtu_gene_expression_plot_reactive <- reactive({
-    req(rv$dtu_result, input$dtu_gene)
+    req(rv$transcript_data, input$dtu_gene)
     make_dtu_gene_expression_plot(
-      rv$dtu_result,
+      transcript_viewer_data_reactive(),
       input$dtu_gene,
       plot_theme = input$plot_theme %||% "classic",
       font_family = input$plot_font_family %||% "serif",
@@ -4095,8 +4131,8 @@ server <- function(input, output, session) {
   }, width = function() input$dtu_plot_width, height = function() input$dtu_plot_height)
 
   output$dtu_gene_usage_table <- renderDT({
-    req(rv$dtu_result, input$dtu_gene)
-    d <- dtu_gene_usage_table(rv$dtu_result, input$dtu_gene)
+    req(rv$transcript_data, input$dtu_gene)
+    d <- dtu_gene_usage_table(transcript_viewer_data_reactive(), input$dtu_gene)
     tbl <- datatable(d, rownames = FALSE, options = list(pageLength = 15, scrollX = TRUE))
     pct_cols <- intersect(c("control_usage", "treatment_usage", "delta_usage"), names(d))
     if (length(pct_cols)) tbl <- DT::formatPercentage(tbl, pct_cols, digits = 1)
@@ -4114,8 +4150,8 @@ server <- function(input, output, session) {
   output$download_dtu_gene_usage <- downloadHandler(
     filename = function() paste0("DTU_", safe_filename_part(input$dtu_gene %||% "gene"), "_usage_", Sys.Date(), ".csv"),
     content = function(file) {
-      req(rv$dtu_result, input$dtu_gene)
-      write.csv(dtu_gene_usage_table(rv$dtu_result, input$dtu_gene), file, row.names = FALSE, na = "")
+      req(rv$transcript_data, input$dtu_gene)
+      write.csv(dtu_gene_usage_table(transcript_viewer_data_reactive(), input$dtu_gene), file, row.names = FALSE, na = "")
     }
   )
   output$download_dtu_usage <- download_plot_server(
@@ -6495,7 +6531,7 @@ server <- function(input, output, session) {
     if (!is.null(rv$transcript_data)) {
       add_param("Transcript / Isoform", "Input type", rv$transcript_data$quant_type %||% "")
       add_param("Transcript / Isoform", "Minimum transcript count", input$dtu_min_count %||% 10)
-      add_param("Transcript / Isoform", "Minimum transcript usage", input$dtu_min_prop %||% 0.1)
+      add_param("Transcript / Isoform", "Minimum transcript usage", input$dtu_min_prop %||% 0.05)
       add_param("Transcript / Isoform", "Minimum samples", input$dtu_min_samples %||% 2)
       add_param("Transcript / Isoform", "DTU FDR cutoff", input$dtu_fdr %||% 0.05)
       add_param("Transcript / Isoform", "Minimum absolute usage change", input$dtu_min_delta %||% 0.1)
@@ -7121,7 +7157,7 @@ server <- function(input, output, session) {
           de_df = rv$de,
           norm_counts = rv$norm_counts,
           min_feature_count = input$dtu_min_count %||% 10,
-          min_feature_prop = input$dtu_min_prop %||% 0.1,
+          min_feature_prop = input$dtu_min_prop %||% 0.05,
           min_samples = input$dtu_min_samples %||% 2,
           fdr_cutoff = input$dtu_fdr %||% 0.05,
           min_delta_usage = input$dtu_min_delta %||% 0.1,
@@ -7136,17 +7172,23 @@ server <- function(input, output, session) {
         top <- top[order(!top$isoform_switch, !top$DTU, top$gene_FDR, na.last = TRUE), , drop = FALSE]
         if (nrow(top)) {
           gene_id <- top$gene_id[1]
+          viewer_data <- make_transcript_viewer_data(
+            transcript_data = rv$transcript_data,
+            dtu_result = rv$dtu_result,
+            de_df = rv$de,
+            norm_counts = rv$norm_counts
+          )
           files <- c(files,
-            run_all_write_csv(dtu_gene_usage_table(rv$dtu_result, gene_id), file.path(out_dir, paste0("DTU_", run_all_safe_filename(gene_id), "_usage.csv"))),
+            run_all_write_csv(dtu_gene_usage_table(viewer_data, gene_id), file.path(out_dir, paste0("DTU_", run_all_safe_filename(gene_id), "_usage.csv"))),
             run_all_save_plot(make_dtu_usage_plot(
-                                rv$dtu_result, gene_id,
+                                viewer_data, gene_id,
                                 plot_theme = input$plot_theme %||% "classic",
                                 font_family = input$plot_font_family %||% "serif",
                                 color_palette = input$dtu_isoform_color_palette %||% "default"),
                               run_all_plot_file(out_dir, paste0("DTU_", run_all_safe_filename(gene_id), "_replicate_usage"), img_fmt),
                               input$dtu_plot_width %||% 700, input$dtu_plot_height %||% 450),
             run_all_save_plot(make_dtu_switch_plot(
-                                rv$dtu_result, gene_id,
+                                viewer_data, gene_id,
                                 plot_theme = input$plot_theme %||% "classic",
                                 font_family = input$plot_font_family %||% "serif",
                                 color_palette = input$dtu_isoform_color_palette %||% "default"),
@@ -7154,7 +7196,7 @@ server <- function(input, output, session) {
                               input$dtu_plot_width %||% 700, input$dtu_plot_height %||% 450)
           )
           expression_plot <- tryCatch(make_dtu_gene_expression_plot(
-            rv$dtu_result, gene_id,
+            viewer_data, gene_id,
             plot_theme = input$plot_theme %||% "classic",
             font_family = input$plot_font_family %||% "serif",
             color_trnt = input$dtu_gene_expression_color_trnt %||% "#ac783e",
