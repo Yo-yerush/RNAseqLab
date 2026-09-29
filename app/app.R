@@ -33,6 +33,9 @@ wrap_html <- function(x, width = 45) {
   HTML(paste(strwrap(x, width = width), collapse = "<br>"))
 }
 
+# Local/web env detection
+is_web <- nzchar(Sys.getenv("CONNECT_CONTENT_GUID")) || identical(Sys.getenv("RNASEQLAB_WEB_MODE"), "1")
+
 # Keep raw analysis objects and downloads unchanged; only round selected
 # DE-result columns when DataTables render in the browser.
 datatable <- function(data, ..., numeric_digits = 4) {
@@ -924,8 +927,46 @@ ui <- fluidPage(
               "📄 Count matrix - gene x sample (Excel/CSV/TSV)" = "countmatrix"),
             selected = "rsem"),
           conditionalPanel("input.deseq_input_type == 'rsem' || input.deseq_input_type == 'salmon' || input.deseq_input_type == 'kallisto'",
-            shinyDirButton("choose_rsem_dir", "Choose quantification folder", "Select a folder"),
-            textInput("rsem_path", "Quantification folder path", value = ""),
+
+            # shinyDirButton("choose_rsem_dir", "Choose quantification folder", "Select a folder"),
+            # textInput("rsem_path", "Quantification folder path", value = ""),
+            if (is_web) {
+              tagList(
+                fileInput(
+                  "quant_zip",
+                  "Upload quantification folder (.zip)",
+                  accept = ".zip"
+                ),
+            
+                # Keep rsem_path because the existing analysis code uses it.
+                tags$div(
+                  style = "display:none;",
+                  textInput(
+                    "rsem_path",
+                    "Quantification folder path",
+                    value = ""
+                  )
+                )
+              )
+            
+            } else {
+            
+              tagList(
+                shinyDirButton(
+                  "choose_rsem_dir",
+                  "Choose quantification folder",
+                  "Select a folder"
+                ),
+            
+                textInput(
+                  "rsem_path",
+                  "Quantification folder path",
+                  value = ""
+                )
+              )
+            
+            },
+
             actionButton("scan_rsem", "Scan folder", class = "btn-primary"),
             tags$hr(),
             conditionalPanel("input.deseq_input_type == 'rsem'",
@@ -1929,19 +1970,76 @@ ui <- fluidPage(
               column(4, br(), actionButton("run_all_clear_all", "Clear selections", class = "btn-default", style = "width:100%;"))
             ),
             tags$hr(),
-            fluidRow(
-              column(3, shinyDirButton("choose_run_all_dir", "Choose output folder", "Select a folder")),
-              column(6, textInput("run_all_output_path", "Output folder path", # value = app_project_root(),
-              # placeholder = "Paste or type a folder path")),
-              placeholder = app_project_root())),
-              column(3, selectInput("run_all_image_format", "Image format", choices = c("PNG" = "png", "SVG" = "svg", "PDF" = "pdf"), selected = "svg"))
-            ),
+
+            # fluidRow(
+            #   column(3, shinyDirButton("choose_run_all_dir", "Choose output folder", "Select a folder")),
+            #   column(6, textInput("run_all_output_path", "Output folder path", # value = app_project_root(),
+            #   # placeholder = "Paste or type a folder path")),
+            #   placeholder = app_project_root())),
+            #   column(3, selectInput("run_all_image_format", "Image format", choices = c("PNG" = "png", "SVG" = "svg", "PDF" = "pdf"), selected = "svg"))
+            # ),
+            if (!is_web) {
+              fluidRow(
+                column(
+                  3,
+                  shinyDirButton(
+                    "choose_run_all_dir",
+                    "Choose output folder",
+                    "Select a folder"
+                  )
+                ),
+                column(
+                  6,
+                  textInput(
+                    "run_all_output_path",
+                    "Output folder path",
+                    placeholder = app_project_root()
+                  )
+                ),
+                column(
+                  3,
+                  selectInput(
+                    "run_all_image_format",
+                    "Image format",
+                    choices = c(
+                      "PNG" = "png",
+                      "SVG" = "svg",
+                      "PDF" = "pdf"
+                    ),
+                    selected = "svg"
+                  )
+                )
+              )
+            } else {
+              fluidRow(
+                column(
+                  3,
+                  selectInput(
+                    "run_all_image_format",
+                    "Image format",
+                    choices = c(
+                      "PNG" = "png",
+                      "SVG" = "svg",
+                      "PDF" = "pdf"
+                    ),
+                    selected = "svg"
+                  )
+                )
+              )
+            },
+
             fluidRow(
               column(4, checkboxInput("run_all_render_report", "Create HTML report", value = TRUE))
             ),
             tags$hr(),
             div(style = "margin-top: 10px;",
-              actionButton("run_all_btn", "Run All", class = "btn-success")
+              actionButton("run_all_btn", "Run All", class = "btn-success"),
+              if (is_web) {
+                downloadButton(
+                  "download_run_all_zip",
+                  "Download all results (.zip)"
+                )
+              }
             )
           ),
           h4("Run All Log"),
@@ -2168,6 +2266,47 @@ server <- function(input, output, session) {
     run_all_log = character(),
     log = character()
   )
+
+  observeEvent(input$quant_zip, {
+
+    req(is_web)
+    req(input$quant_zip)
+
+    d <- file.path(
+      tempdir(),
+      paste0("rnaseqlab_quant_", session$token)
+    )
+
+    unlink(d, recursive = TRUE, force = TRUE)
+    dir.create(d, recursive = TRUE, showWarnings = FALSE)
+
+    unzip(
+      input$quant_zip$datapath,
+      exdir = d
+    )
+
+    # If the ZIP contains one outer folder, use that folder.
+    top <- list.files(
+      d,
+      full.names = TRUE,
+      all.files = FALSE
+    )
+
+    if (length(top) == 1 && dir.exists(top)) {
+      d <- top
+    }
+
+    updateTextInput(
+      session,
+      "rsem_path",
+      value = d
+    )
+
+    showNotification(
+      "Quantification folder uploaded. Click 'Scan folder'.",
+      type = "message"
+    )
+  })
 
   ### tabs names font options
   output$custom_groups_At_tab_title <- renderUI({
@@ -6682,11 +6821,53 @@ server <- function(input, output, session) {
   })
 
   run_all_effective_output_dir <- reactive({
+    if (is_web) {
+      d <- file.path(
+        tempdir(),
+        paste0("RNAseqLab_output_", session$token)
+      )
+      dir.create(
+        d,
+        recursive = TRUE,
+        showWarnings = FALSE
+      )
+      return(d)
+    }
+
     manual <- trimws(input$run_all_output_path %||% "")
     if (nzchar(manual)) return(manual)
     if (nzchar(rv$run_all_output_dir %||% "")) return(rv$run_all_output_dir)
     run_all_default_output_dir()
   })
+
+  output$download_run_all_zip <- downloadHandler(
+    filename = function() {
+      paste0(
+        "RNAseqLab_results_",
+        Sys.Date(),
+        ".zip"
+      )
+    },
+    content = function(file) {
+      d <- run_all_effective_output_dir()
+      files <- list.files(
+        d,
+        recursive = TRUE,
+        full.names = FALSE
+      )
+      if (length(files) == 0) {
+        stop("No Run All results are available yet.")
+      }
+      oldwd <- getwd()
+      on.exit(setwd(oldwd), add = TRUE)
+      setwd(d)
+      utils::zip(
+        zipfile = file,
+        files = files
+      )
+    },
+    contentType = "application/zip"
+  )
 
   # observeEvent(input$rsem_path, {
   #   path <- trimws(input$rsem_path %||% "")
