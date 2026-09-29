@@ -2,7 +2,7 @@
 setlocal EnableExtensions EnableDelayedExpansion
 cd /d "%~dp0app"
 
-echo RNAseq dashboard launcher (v0.9.4)
+echo RNAseq dashboard launcher (v0.9.5)
 echo ==================================
 echo.
 

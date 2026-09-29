@@ -5,18 +5,12 @@
 
 RNAseqLab is an interactive R Shiny platform for comprehensive RNA-seq analysis, supporting count and transcript quantification data, differential gene expression, gene set enrichment analysis (GSEA), transcript and isoform-level analyses, functional annotation, and downstream exploration and visualization.
 
-
-<h1></h1>
-
-**Author:** Yonatan Yerushalmy  
-Plant's metabolism and molecular genetic lab, Prof. Rachel Amir group
-
-**Repository:**  
-[https://github.com/Yo-yerush/RNAseqLab.git](https://github.com/Yo-yerush/RNAseqLab.git)
-
+Open the web app → [posit.cloud/yo-yerush/RNAseqLab](https://01a0ed35-3aa5-5515-b26a-cc4483ccb9b5.share.connect.posit.cloud/)
 
 **Cite:**  
-Yerushalmy, Y., & Amir, R. (2026). *RNAseqLab: An Integrated Platform for RNA-seq Analysis and Functional Interpretation*, (Version 0.9.4). Zenodo. [doi.org/10.5281/zenodo.21798390](https://doi.org/10.5281/zenodo.21798390)
+Yerushalmy, Y., & Amir, R. (2026). *RNAseqLab: An Integrated Platform for RNA-seq Analysis and Functional Interpretation*, (Version 0.9.5). Zenodo. [doi.org/10.5281/zenodo.21798390](https://doi.org/10.5281/zenodo.21798390)
+
+<h1></h1>
 
 ## How To Run On Windows
 

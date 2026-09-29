@@ -864,10 +864,10 @@ ui <- fluidPage(
           "RNAseqLab Dashboard"
         ),
 
-        div(
-          style = "font-size: 14px; font-weight: normal; margin-top: 2px;",
-          "By Yonatan Yerushalmy • Rachel Amir's group"
-        )
+        # div(
+        #   style = "font-size: 14px; font-weight: normal; margin-top: 2px;",
+        #   "By Yonatan Yerushalmy • Rachel Amir's group"
+        # )
       )
     )
   ),
@@ -908,6 +908,8 @@ ui <- fluidPage(
             style = "margin-top: 28px; border-radius: 90%; width: 18px; height: 18px; padding: 0;"
           )
         ),
+  
+        tags$hr(style = "margin-top: 5px; margin-bottom: 8px;"),
 
         conditionalPanel("input.data_mode == 'csv'",
           fileInput("de_file", "DE results table", accept = c(".csv", ".tsv", ".txt", ".xlsx", ".xls")),
@@ -918,14 +920,23 @@ ui <- fluidPage(
         ),
 
         conditionalPanel("input.data_mode == 'rsem'",
-          radioButtons("deseq_input_type", "DESeq2 input",
-            choices = c(
-              "📁 RSEM - *.genes.results or *.isoforms.results" = "rsem",
-              "📁 Salmon - */quant.sf" = "salmon",
-              "📁 Kallisto - */abundance.tsv" = "kallisto",
-              "📄 featureCounts - counts (TSV)" = "featurecounts",
-              "📄 Count matrix - gene x sample (Excel/CSV/TSV)" = "countmatrix"),
-            selected = "rsem"),
+          radioButtons("deseq_input_type", "Input type",
+            choiceNames = list(
+              tagList(icon("folder"), tags$span(style = "margin-left: 2px;", "RSEM", "  -", tags$code("*.genes.results"), tags$span(style = "font-family: monospace;", "or"), tags$code("*.isoforms.results"))),
+              tagList(icon("folder"), tags$span(style = "margin-left: 2px;", "Salmon -", tags$code("*/quant.sf"))),
+              tagList(icon("folder"), tags$span(style = "margin-left: 2px;", "Kallisto -", tags$code("*/abundance.tsv"))),
+              tagList(icon("file"), tags$span(style = "margin-left: 6px;", "featureCounts -", tags$code("*_counts.tsv"))),
+              tagList(icon("file"), tags$span(style = "margin-left: 6px;", "Count matrix - ", tags$span(style = "font-family: monospace;", "gene × sample ("), tags$code("*.xlsx|csv|tsv|txt"), tags$span(style = "font-family: monospace;", ")")))
+            ),
+            choiceValues = c(
+              "rsem",
+              "salmon",
+              "kallisto",
+              "featurecounts",
+              "countmatrix"
+            ),
+            selected = "rsem"
+          ),
           conditionalPanel("input.deseq_input_type == 'rsem' || input.deseq_input_type == 'salmon' || input.deseq_input_type == 'kallisto'",
 
             # shinyDirButton("choose_rsem_dir", "Choose quantification folder", "Select a folder"),
@@ -940,7 +951,7 @@ ui <- fluidPage(
             
                 # Keep rsem_path because the existing analysis code uses it.
                 tags$div(
-                  style = "display:none;",
+                  style = "display: none; margin-bottom: 8px;",
                   textInput(
                     "rsem_path",
                     "Quantification folder path",
@@ -952,10 +963,13 @@ ui <- fluidPage(
             } else {
             
               tagList(
-                shinyDirButton(
-                  "choose_rsem_dir",
-                  "Choose quantification folder",
-                  "Select a folder"
+                tags$div(
+                  style = "margin-bottom: 8px;",
+                  shinyDirButton(
+                    "choose_rsem_dir",
+                    "Choose quantification folder",
+                    "Select a folder"
+                  )
                 ),
             
                 textInput(
@@ -2068,17 +2082,25 @@ ui <- fluidPage(
                 )
               ),
               tags$hr(),
+              h4("Source Code & Repository"),
+              div(class = "muted", "GitHub repository:", tags$a(href = "https://github.com/Yo-yerush/RNAseqLab", "https://github.com/Yo-yerush/RNAseqLab", target = "_blank")),
+              div(class = "muted", "You can download, edit, and access the raw files and source code for this app:", tags$a(href = "https://github.com/Yo-yerush/RNAseqLab/archive/refs/heads/main.zip", "Download (.zip)", target = "_blank")),
+              div(class = "muted", "- - -"),
+              div(class = "muted", "Run the app locally (", tags$b("Windows"), ") by double-clicking:"),
+              tags$ul(
+                tags$li(tags$code("install.bat"), "(one-time setup)"),
+                tags$li(tags$code("RNAseqLab.bat"))
+              ),
+              div(class = "muted", "For ", tags$b("macOS"), " or ", tags$b("Linux"), ", open a terminal and run:"),
+              tags$ul(
+                tags$li(tags$code("Rscript app/install_packages.R"), "(one-time setup)"),
+                tags$li(tags$code("Rscript app/launch_app.R"))
+              ),        
+              tags$hr(),
               h4("Author"),
               div("Yonatan Yerushalmy"),
               div(class = "muted", "Plant's Metabolism and Molecular Genetic laboratory"),
               div(class = "muted", "Rachel Amir's group"),
-              tags$hr(),
-              h4("Source Code & Repository"),
-              div(class = "muted", "You can download, edit, and access the raw files and source code for this app:"),
-              tags$a(href = "https://github.com/Yo-yerush/RNAseqLab/archive/refs/heads/main.zip", "Download (.zip)", target = "_blank"),
-              div(class = "muted", "--"),
-              div(class = "muted", "GitHub repository:"),
-              tags$a(href = "https://github.com/Yo-yerush/RNAseqLab", "https://github.com/Yo-yerush/RNAseqLab", target = "_blank"),
               tags$hr(),
               tags$div(
                 class = "citation-box",
@@ -2096,7 +2118,7 @@ ui <- fluidPage(
                   href = "https://doi.org/10.5281/zenodo.21798390",
                   target = "_blank"
                 )
-              ),         
+              ), 
               tags$hr(),
               h4("Notes & Usage"),
               tags$ul(
