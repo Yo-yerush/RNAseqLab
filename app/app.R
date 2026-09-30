@@ -796,7 +796,77 @@ ui <- fluidPage(
   ")),
   tags$head(
     tags$style(HTML("
-      .app-title { margin-top: 10px; margin-bottom: 4px; font-weight: 700; }
+    /*
+      .app-title { margin-top: 0px; margin-bottom: 0px; font-weight: 700; }
+      h2:has(.app-title) {margin-top: 5px; margin-bottom: 0px;}
+    */
+
+    .app-header {
+      height: 72px;
+      padding: 0px 10px;
+      display: flex;
+      align-items: center;
+      gap: 15px;
+      box-sizing: border-box;
+      margin-top: 3px;
+      margin-bottom: -17px;
+    }
+
+    .app-header img {
+      display: block;
+    }
+
+    .app-title {
+      margin: 0;
+      padding: 0;
+      font-size: 30px;
+      font-weight: 700;
+      line-height: 1;
+    }
+
+      /* Move the main tabs into the header area */
+      #main_content > .tabbable > .nav-tabs {
+        position: absolute;
+        top: -68px;
+        left: 0;
+        right: 0;
+        z-index: 1000;
+        margin: 0;
+        border-bottom: none;
+        background: transparent;
+      
+        display: flex;
+        flex-wrap: nowrap;
+        white-space: nowrap;
+      }
+      
+      /* Keep all main tabs on one row */
+      #main_content > .tabbable > .nav-tabs > li {
+        float: none;
+      }
+      
+      /* Main tab headers */
+      #main_content > .tabbable > .nav-tabs > li > a {
+        padding-left: 10px;
+        padding-right: 10px;
+        font-size: 14px;
+        font-weight: 600;
+      }
+
+      /* Currently selected main tab */
+      #main_content > .tabbable > .nav-tabs > li.active > a {
+        font-weight: 700;
+      }
+      
+      /* Main content no longer needs space for the tabs */
+      #main_content > .tabbable > .tab-content {
+        border: none;
+        padding-top: 0;
+        padding-bottom: 0;
+        padding-left: 0;
+        padding-right: 0;
+      }
+
       .muted { color: #666; font-size: 0.92em; }
       .tab-content { padding: 16px; border: 1px solid #ddd; border-top: none; }
       .download-row .btn { margin-right: 8px; margin-top: 6px; }
@@ -806,35 +876,79 @@ ui <- fluidPage(
       pre { white-space: pre-wrap; }
       table.dataTable tbody td { padding-top: 1.5px; padding-bottom: 1.5px; line-height: 1.25; }
 
+      /* #settings_toggle_btn { */
+      /*   margin: 4px 0 10px 0; */
+      /*   padding: 0 4px; */
+      /*   margin-left: left; */
+      /*   font-size: 10px; */
+      /*   line-height: 0.5; */
+      /*   height: 16px; */
+      /*   min-height: 16px; */
+      /*   transition: all 0.2s ease; */
+      /* } */
+
+      .layout-with-toggle {
+        position: relative;
+      }
+
       #settings_toggle_btn {
-        margin: 4px 0 10px 0;
+        position: absolute;
+        top: 5px;
+        left: 2px;
+        z-index: 1100;
+
+        margin: 0;
         padding: 0 4px;
-        margin-left: left;
         font-size: 10px;
         line-height: 0.5;
         height: 16px;
         min-height: 16px;
-        transition: all 0.2s ease;
+      }
+
+      /* leave room for button inside configuration box */
+      #settings_sidebar {
+        padding-top: 30px;
       }
 
       body.settings-hidden #settings_sidebar { display: none; }
       body.settings-hidden #settings_toggle_btn { margin-left: 0px; }
       body.settings-hidden #main_content { width: 100%; }
+
+      /* Keep MAIN navigation tabs in the same position when sidebar collapses */
+      body.settings-hidden #main_content > .tabbable > .nav-tabs {
+        left: 25%;
+        right: 0;
+      }
+
       .row-detail-modal { max-height: 70vh; overflow-y: auto; }
       .row-detail-table th { width: 190px; vertical-align: top; white-space: nowrap; }
       .row-detail-table td { white-space: pre-wrap; word-break: break-word; }
     ")),
+
+    # tags$script(HTML("
+    #   $(document).on('click', '#settings_toggle_btn', function() {
+    #     var hidden = !$('body').hasClass('settings-hidden');
+    #     $('body').toggleClass('settings-hidden', hidden);
+    #     $(this).text(hidden ? '☰ ►' : '◄ ☰');
+    #   });
+    # ")),
     tags$script(HTML("
       $(document).on('click', '#settings_toggle_btn', function() {
         var hidden = !$('body').hasClass('settings-hidden');
         $('body').toggleClass('settings-hidden', hidden);
-        $(this).text(hidden ? '☰ ►' : '◄ ☰');
+
+        $(this).html(
+          hidden
+            ? '<i class=\"fas fa-list-ul\"></i> ►'
+            : '◄ <i class=\"fas fa-list-ul\"></i>'
+        );
       });
     ")),
+
     tags$link(
       rel = "icon",
       type = "image/png",
-      href = "RNAseqLab_white_logo_small.png"
+      href = "RNAseqLab_logo_small.png"
     ),
     tags$title("RNAseqLab")
   ),
@@ -843,46 +957,75 @@ ui <- fluidPage(
   # if (requireNamespace("shinythemes", quietly = TRUE)) shinythemes::themeSelector(),
 
   #titlePanel(div(class = "app-title", style = "margin-left: -12px;", tags$a(href = "https://github.com/Yo-yerush/RNAseqLab", target = "_blank", "╭╯"), "RNAseqLab Dashboard", )),
-  titlePanel(
+
+  div(
+    class = "app-header",
+
+    tags$a(
+      href = "https://github.com/Yo-yerush/RNAseqLab",
+      target = "_blank",
+      tags$img(
+        src = "RNAseqLab_logo.png",
+        height = "65px"
+      )
+    ),
+
     div(
       class = "app-title",
-      style = "margin-left: -12px; display: flex; align-items: center; gap: 10px;",
-
-      tags$a(
-        href = "https://github.com/Yo-yerush/RNAseqLab",
-        target = "_blank",
-        tags$img(
-          src = "RNAseqLab_logo.png",
-          height = "65px"
-        )
-      ),
-
-      div(
-        style = "display: flex; flex-direction: column;",
-
-        div(
-          "RNAseqLab Dashboard"
-        ),
-
-        # div(
-        #   style = "font-size: 14px; font-weight: normal; margin-top: 2px;",
-        #   "By Yonatan Yerushalmy • Rachel Amir's group"
-        # )
-      )
+      HTML('RNA<span style="color:#9c420e;">seq</span>Lab')
+      # HTML('RNA<span style="color:#b84909;">seq</span>Lab')
     )
   ),
+
+  # titlePanel(
+  #   div(
+  #     class = "app-title",
+  #     style = "margin-left: 20px; display: flex; align-items: center; gap: 15px;",
+# 
+  #     tags$a(
+  #       href = "https://github.com/Yo-yerush/RNAseqLab",
+  #       target = "_blank",
+  #       tags$img(
+  #         src = "RNAseqLab_logo.png",
+  #         height = "65px"
+  #       )
+  #     ),
+# 
+  #     div(
+  #       style = "display: flex; flex-direction: column;",
+# 
+  #       div(
+  #         HTML(
+  #           'RNA<span style="color:#9c420e;">seq</span>Lab'
+  #         #  'RNA<span style="color:#8a8a8a;">seq</span>Lab<span style="color:#8a8a8a;"> Dashboard</span>'
+  #         )
+  #       )
+# 
+  #       # div(
+  #       #   style = "font-size: 14px; font-weight: normal; margin-top: 2px;",
+  #       #   "By Yonatan Yerushalmy • Rachel Amir's group"
+  #       # )
+  #     )
+  #   )
+  # ),
   
   # div(class = "muted", style = "margin-left: 68px;", "By Yonatan Yerushalmy • Rachel Amir's group"),
   # div(class = "muted", style = "margin-left: 12px;", "By Yonatan Yerushalmy • Rachel Amir's group"),
   # div(class = "muted", style = "margin-left: 0px; margin-bottom: -16px;", "By Yonatan Yerushalmy • Rachel Amir's group"),
-  tags$hr(),
+  
+  tags$hr(style = "margin: 20px 0 4px 0px;"),
+  # tags$hr(),
+
   div(
-    style = "margin-top: -20px; margin-bottom: -6px;", # margin-left: left; 
+    # style = "margin-top: -20px; margin-bottom: -6px;", # margin-left: left; 
+    class = "layout-with-toggle",
     tags$button(
       id = "settings_toggle_btn",
       type = "button",
-      class = "btn btn-warning btn-xs",
-      "◄ ☰"
+      class = "btn btn-light btn-xs",
+      # "◄ ",
+      icon("caret-left"),
+      icon("bars")
     )
   ),
   sidebarLayout(
@@ -901,11 +1044,12 @@ ui <- fluidPage(
           actionButton(
             "show_count_data_examples",
             #"𝒊",
-            "ℹ",
             #"𝓲",
-            class = "btn-warning btn-xs",
+            # "ℹ",
+            icon("info"),
+            class = "btn btn-light btn-xs",
             title = "Show RNA-seq count data input examples",
-            style = "margin-top: 28px; border-radius: 90%; width: 18px; height: 18px; padding: 0;"
+            style = "margin-top: 28px; border-radius: 90%; width: 20px; height: 20px; padding: 0px;"
           )
         ),
   
@@ -2074,9 +2218,9 @@ ui <- fluidPage(
                 ),
               
                 div(
-                  h4(
+                  h2(
                     style = "margin: 0;",
-                    "RNAseqLab"
+                    HTML('RNA<span style="color:#b84909;">seq</span>Lab')
                   ),
                   div("An Integrated Platform for RNA-seq Analysis and Functional Interpretation")
                 )
