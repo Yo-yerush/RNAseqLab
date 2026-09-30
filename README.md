@@ -1,6 +1,9 @@
 <h1>
-  <img src="app/www/RNAseqLab_logo.png" width="85" align="left" style="margin-top:-25px;" alt="RNA-seq Downstream Analysis logo">
-  RNAseqLab: Expression & Downstream Analysis Dashboard
+  <img src="app/www/RNAseqLab_logo.png"
+       width="85"
+       align="middle"
+       alt="RNAseqLab logo">
+  &nbsp;RNAseqLab: Expression & Downstream Analysis Dashboard
 </h1>
 
 RNAseqLab is an interactive R Shiny platform for comprehensive RNA-seq analysis, supporting count and transcript quantification data, differential gene expression, gene set enrichment analysis (GSEA), transcript and isoform-level analyses, functional annotation, and downstream exploration and visualization.
