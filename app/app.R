@@ -834,7 +834,7 @@ ui <- fluidPage(
     tags$link(
       rel = "icon",
       type = "image/png",
-      href = "RNAseqLab_logo.png"
+      href = "RNAseqLab_white_logo_small.png"
     ),
     tags$title("RNAseqLab")
   ),
