@@ -1,6 +1,6 @@
 <h1>
   <img src="app/www/RNAseqLab_logo.png"
-       width="85"
+       width="95"
        align="left"
        alt="RNAseqLab logo">
   RNAseqLab: Expression & Downstream Analysis Dashboard
