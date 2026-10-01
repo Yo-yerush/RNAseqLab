@@ -909,10 +909,13 @@ ui <- fluidPage(
       #settings_sidebar {
         padding-top: 30px;
       }
-
+      
       body.settings-hidden #settings_sidebar { display: none; }
       body.settings-hidden #settings_toggle_btn { margin-left: 0px; }
-      body.settings-hidden #main_content { width: 100%; }
+      body.settings-hidden #main_content { margin-left: 40px; width: calc(100% - 40px); }
+
+      body:not(.settings-hidden) #main_content { padding-left: 0; }
+
 
       /* Keep MAIN navigation tabs in the same position when sidebar collapses */
       body.settings-hidden #main_content > .tabbable > .nav-tabs {
